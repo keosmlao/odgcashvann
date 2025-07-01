@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ODIENMALL PAYMENT</title>
+    <!-- <script>
+        function sendMessageToFlutter() {
+            FlutterChannel.postMessage("pop");
+        }
+    </script> -->
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+    <!-- <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script> -->
+    <script src="https://cdn.pubnub.com/sdk/javascript/pubnub.4.27.3.js"></script>
+    <script src="https://www.odienmall.com/static/js/onepay.js"></script>
+    <script>
+            function receiveMessageFromFlutter(value) {
+      document.getElementById("message").textContent = `Received value: ${value}`;
+    }
+        $(function () {
+            //var mcid = "mch5c2f0404102fb"; // merchant id
+            var mcid = "mch667bdd4aaf07a";
+            var shopcode = "tCpJN9pvOwYD"; // shop code
+            var uuid = '2222222'; // transaction id (please define as unique key)
+            var onePay = new OnePay(mcid); // create new OnePay instance
+            onePay.debug = true; // enable OnPay debug(Please looking on console log)
+
+            /* generate new QR code via onepay.js */
+            onePay.getCode({
+                transactionid: uuid, // please define as unique key
+                invoiceid: '2222222', // a invoice ID can pay many times OR have many transaction ID
+                terminalid: '001', // terminal ID (in case have many terminals, POS devices or etc...)
+                amount: '1', // invoice amount
+                description: 'Odienmall_Order:2222222', // must define as English text
+                expiretime: 5, // expire time must be minutes
+            }, function (code) {
+                $('.qr-code').attr('src', 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + code); // set QR code into image, Scan to pay
+                $('.one-click-pay').attr('href', 'onepay://qr/' + code) // set QR code into button, One click pay(payment link) for mobile app integration
+            });
+
+            /* define subscribe parameter(s) */
+            var subParams = {
+                uuid: uuid, // please specified uuid if would like to receive callback data only the transaction (for front-end subscribe)
+                shopcode: null, // please specified shopcode if would link to receive all callback for the merchant ID (for back-end subscribe)
+                tid: null // please specified tid(terminal ID) and shopcode if would link to receive all callback for the merchant ID and specific terminal (for terminal subscribe)
+            };
+            /* subscribe to receiving OnePay callback*/
+            onePay.subscribe(subParams, function (res) {
+                if (res.uuid === uuid) {
+                    document.getElementById("qrcode").style.display = "none";
+                    var s = document.getElementById("success");
+                    s.style.width = "200px";
+                    s.style.height = "200px";
+                    const myTimeout = setTimeout(myGreeting, 5000);
+
+                    function myGreeting() {
+                        FlutterChannel.postMessage("pop");
+                    }
+                }
+            });
+        })
+    </script>
+
+    <style>
+        .qr-code {
+            border: 3px solid #bb1111;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <center>
+        <h3 class="mb-1" id="message">ODIEN MALL ONLINE</h3>
+
+        <h6 style="text-transform: none;"> <img src="/static/bcel.png" alt="" style="width: 25px;"> OnePay</h6>
+        <img id="success" src="https://www.freeiconspng.com/uploads/success-icon-10.png"
+            style="width: 1px; height: 1px" />
+        <div id="qrcode">
+            <img class="qr-code" style="width: 50%;">
+        </div>
+        <br>
+
+        <h6>ສະແກນ QR code ເພື່ອຊຳລະເງິນ </h6>
+        <h5 style="color:#fff;text-align: center;text-transform: none;color: #C0202F;">₭ 1</h5>
+
+        <h5 class="mt-2">ເຫຼືອເວລາ: <span id="ten-countdown">
+
+            </span></h5>
+        <br>
+        <p>(ກະລຸນາເປີດໜ້ານີ້ຄ້າງໄວ້ ຈົນກວ່າ <span style="font-weight: bold;">ຊຳລະເງິນສຳເລັດ</span>)</p>
+        <!-- <a href="" class="one-click-pay">Pay</a> -->
+    </center>
+
+    <!-- <button onclick="sendMessageToFlutter()">Press me to pop</button> -->
+</body>
+
+</html>

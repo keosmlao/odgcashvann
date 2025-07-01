@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "324979673403",
+    "project_id": "vansale-3be8d",
+    "storage_bucket": "vansale-3be8d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:324979673403:android:22e579c4b8a19030a88f1e",
+        "android_client_info": {
+          "package_name": "com.odglao.odgcashvan"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4xHN6353N_bakRp3ZxcIecEzx0U8X_hw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:324979673403:android:751a94c3df84ee12a88f1e",
+        "android_client_info": {
+          "package_name": "com.smlao.vansale"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4xHN6353N_bakRp3ZxcIecEzx0U8X_hw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
