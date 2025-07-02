@@ -20,12 +20,18 @@
 
 
     <application
+    
+        android:hardwareAccelerated="true"
         android:name=".MyApplication"
         android:label="odgcashvan"
-        android:icon="@mipmap/ic_launcher" > <service
+        android:icon="@mipmap/ic_launcher" 
+        > <!-- ✅ สำคัญมาก -->
+        <meta-data android:name="com.google.android.geo.API_KEY"
+               android:value="AIzaSyDri1VK3Gm30kHU_5yT6fssp9Aitnq4HOY"/>
+           <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:foregroundServiceType="location"
-            android:exported="true" />
+            android:exported="true" /> 
 
         <receiver
             android:enabled="true"
@@ -38,9 +44,6 @@
             </intent-filter>
         </receiver>
 
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyD_JJltiZaKF_f7AFcOTFjJ2KRCWG6Npg0" />
 
         <activity
             android:name=".MainActivity"

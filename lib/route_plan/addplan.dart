@@ -425,8 +425,8 @@ class _AddplanState extends State<Addplan> {
                           ),
                         ),
                       )
-                    : SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.30,
+                    : Expanded(
+                        // height: MediaQuery.of(context).size.height * 0.30,
                         child: ListView.builder(
                           itemCount: _journals.length,
                           itemBuilder: (context, index) => Dismissible(

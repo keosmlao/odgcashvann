@@ -303,17 +303,38 @@ class _StartPlanPageState extends State<StartPlanPage> {
                     height: 55,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        if (route_plan_id == null || route_plan_id!.isEmpty) {
-                          openPlan();
-                        } else {
+                        if (route_plan_id != null &&
+                            route_plan_id!.isNotEmpty) {
                           _showAlertDialog(
                             title: "ຄຳເຕືອນ",
                             content:
                                 "ມີແຜນກຳລັງດຳເນີນການຢູ່ແລ້ວ. ກະລຸນາປິດແຜນເກົ່າກ່ອນເລີ່ມແຜນໃໝ່.",
                             isError: true,
                           );
+                          return;
                         }
+
+                        if (driver_code == null || driver_code!.isEmpty) {
+                          _showAlertDialog(
+                            title: "ຄຳເຕືອນ",
+                            content: "ກະລຸນາເລືອກຄົນຂັບລົດກ່ອນ.",
+                            isError: true,
+                          );
+                          return;
+                        }
+
+                        if (car_code == null || car_code!.isEmpty) {
+                          _showAlertDialog(
+                            title: "ຄຳເຕືອນ",
+                            content: "ກະລຸນາເລືອກລົດກ່ອນ.",
+                            isError: true,
+                          );
+                          return;
+                        }
+
+                        openPlan();
                       },
+
                       icon: const Icon(
                         Icons.play_circle_fill_outlined,
                         size: 28,
