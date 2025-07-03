@@ -621,13 +621,15 @@ class _RoutePlanDetailState extends State<RoutePlanDetail> {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (context) => SalePage(
-                                              cust_code: "${item['cust_code']}",
-                                              cust_group_1:
-                                                  "${item['group_main']}",
-                                              cust_group_2:
-                                                  "${item['group_sub_1']}",
-                                            ),
+                                            builder: (context) =>
+                                                ModernSalePage(
+                                                  cust_code:
+                                                      "${item['cust_code']}",
+                                                  cust_group_1:
+                                                      "${item['group_main']}",
+                                                  cust_group_2:
+                                                      "${item['group_sub_1']}",
+                                                ),
                                           ),
                                         );
                                       },

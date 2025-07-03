@@ -1,266 +1,358 @@
 import 'dart:convert';
-import 'dart:ui' as ui; // Renamed to avoid conflict with flutter/material
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_signaturepad/signaturepad.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:http/http.dart' as http; // Explicitly alias http
+import 'package:http/http.dart' as http;
 
 import '../utility/my_constant.dart';
 
 class ConfirmDispatchScreen extends StatefulWidget {
   final String doc_no;
-
-  const ConfirmDispatchScreen({Key? key, required this.doc_no})
-    : super(key: key);
+  const ConfirmDispatchScreen({super.key, required this.doc_no});
 
   @override
-  _ConfirmDispatchScreenState createState() => _ConfirmDispatchScreenState();
+  State<ConfirmDispatchScreen> createState() => _ConfirmDispatchScreenState();
 }
 
-class _ConfirmDispatchScreenState extends State<ConfirmDispatchScreen> {
-  final GlobalKey<SfSignaturePadState> signatureGlobalKey = GlobalKey();
-  String _currentDate = '';
-  bool _isLoading = false; // Renamed for consistency
-
-  // Define consistent colors for the theme
-  final Color _primaryColor = const Color(0xFF007BFF); // A vibrant blue
-  final Color _accentColor = const Color(
-    0xFF0056B3,
-  ); // A darker blue for accents
-  final Color _backgroundColor = const Color(
-    0xFFF8F9FA,
-  ); // Light gray background
-  final Color _cardColor = Colors.white;
-  final Color _textColorPrimary = const Color(
-    0xFF343A40,
-  ); // Dark gray for main text
-  final Color _textColorSecondary = const Color(
-    0xFF6C757D,
-  ); // Muted gray for secondary text
-  final Color _buttonColor = const Color(
-    0xFF28A745,
-  ); // Green for confirm button
-  final Color _clearButtonColor = const Color(
-    0xFFDC3545,
-  ); // Red for clear button
+class _ConfirmDispatchScreenState extends State<ConfirmDispatchScreen>
+    with SingleTickerProviderStateMixin {
+  final _signatureKey = GlobalKey<SfSignaturePadState>();
+  bool _isLoading = false;
+  bool _hasSigned = false;
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
-    _getCurrentTime();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+    _animationController.forward();
   }
 
-  void _handleClearButtonPressed() {
-    signatureGlobalKey.currentState?.clear(); // Use null-safe access
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
-  void _getCurrentTime() {
-    DateTime now = DateTime.now();
-    String formattedDate = DateFormat('yyyy-MM-dd HH:mm').format(now);
-
-    setState(() {
-      _currentDate = formattedDate;
-    });
-  }
-
-  void _handleSaveButtonPressed() async {
-    setState(() {
-      _isLoading = true; // Start loading
-    });
+  Future<void> _saveSignature() async {
+    setState(() => _isLoading = true);
 
     try {
-      final data = await signatureGlobalKey.currentState!.toImage(
-        pixelRatio: 3.0,
-      );
-      final bytes = await data.toByteData(format: ui.ImageByteFormat.png);
+      final image = await _signatureKey.currentState!.toImage(pixelRatio: 3.0);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
 
-      if (bytes == null) {
-        _showSnackBar('ບໍ່ສາມາດບັນທຶກລາຍເຊັນໄດ້', _clearButtonColor);
-        return;
-      }
-
-      SharedPreferences preferences = await SharedPreferences.getInstance();
-      String requestBody = json.encode({
-        'sign': base64.encode(bytes.buffer.asUint8List()),
-        'doc_no': widget.doc_no, // Use widget.doc_no directly
-        'doc_date': _currentDate,
-      });
-
-      var response = await http.post(
+      final response = await http.post(
         Uri.parse('${MyConstant().domain}/confirmDispatch'),
         headers: {'Content-Type': 'application/json; charset=UTF-8'},
-        body: requestBody,
+        body: json.encode({
+          'sign': base64.encode(bytes!.buffer.asUint8List()),
+          'doc_no': widget.doc_no,
+          'doc_date': DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now()),
+        }),
       );
 
-      if (response.statusCode == 200) {
-        _showSnackBar('ບັນທຶກການເບີກຈ່າຍສຳເລັດ', _buttonColor);
-        Navigator.pop(context); // Go back after success
-      } else {
-        _showSnackBar(
-          'ເກີດຂໍ້ຜິດພາດ: ${response.statusCode}',
-          _clearButtonColor,
-        );
-        print("Error: ${response.statusCode}, Body: ${response.body}");
+      if (mounted) {
+        if (response.statusCode == 200) {
+          _showSuccessDialog();
+        } else {
+          throw Exception('Server Error');
+        }
       }
     } catch (e) {
-      _showSnackBar('ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: $e', _clearButtonColor);
-      print("Exception: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'ເກີດຂໍ້ຜິດພາດ ກະລຸນາລອງໃໝ່',
+              style: TextStyle(fontFamily: 'NotoSansLao'),
+            ),
+            backgroundColor: Colors.red.shade400,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isLoading = false; // End loading
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showSnackBar(String message, Color color) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: const TextStyle(
-              fontFamily: 'NotoSansLao',
-              color: Colors.white,
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.check_circle,
+            color: Colors.green.shade600,
+            size: 48,
+          ),
+        ),
+        title: const Text(
+          'ສຳເລັດ',
+          style: TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: const Text(
+          'ບັນທຶກລາຍເຊັນສຳເລັດແລ້ວ\nຂອບໃຈທີ່ໃຊ້ບໍລິການ',
+          style: TextStyle(fontFamily: 'NotoSansLao'),
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context)
+              ..pop()
+              ..pop(),
+            child: const Text(
+              'ສິ້ນສຸດ',
+              style: TextStyle(fontFamily: 'NotoSansLao'),
             ),
           ),
-          backgroundColor: color,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _backgroundColor,
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.grey.shade800,
         title: const Text(
-          "ຢືນຢັນການເບີກຈ່າຍ",
+          'ຢືນຢັນການເຊັນຮັບ',
           style: TextStyle(
-            color: Colors.white,
             fontFamily: 'NotoSansLao',
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        backgroundColor: _primaryColor,
         centerTitle: true,
-        foregroundColor: Colors.white, // Ensure back icon is white
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch, // Stretch children
-          children: [
-            Text(
-              "ເລກທີເອກະສານ: ${widget.doc_no}",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _textColorPrimary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              "ກະລຸນາລົງລາຍເຊັນເພື່ອຢືນຢັນການຮັບສິນຄ້າ",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                fontSize: 16,
-                color: _textColorSecondary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              height: 300, // Fixed height for signature pad
-              decoration: BoxDecoration(
-                color: _cardColor,
-                border: Border.all(color: Colors.grey.shade400, width: 2),
-                borderRadius: BorderRadius.circular(12), // Rounded corners
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+      body: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Header Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            FontAwesomeIcons.fileSignature,
+                            color: Colors.blue.shade600,
+                            size: 32,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'ເອກະສານເລກທີ',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                            fontFamily: 'NotoSansLao',
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.doc_no,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'NotoSansLao',
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Signature Instructions
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: Colors.amber.shade700,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'ກະລຸນາເຊັນຊື່ຂອງທ່ານໃນຊ່ອງຂ້າງລຸ່ມເພື່ອຢືນຢັນການຮັບສິນຄ້າ',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'NotoSansLao',
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Signature Pad
+                  Container(
+                    width: double.infinity,
+                    height: 280,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade300, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 15,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        height: 300,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SfSignaturePad(
+                          key: _signatureKey,
+                          backgroundColor: Colors.white,
+                          strokeColor: Colors.black,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Clear Button
+                  TextButton.icon(
+                    onPressed: () {
+                      _signatureKey.currentState?.clear();
+                      setState(() => _hasSigned = false);
+                    },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text(
+                      'ລົບລາຍເຊັນ',
+                      style: TextStyle(fontFamily: 'NotoSansLao'),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey.shade600,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Confirm Button
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: double.infinity,
+                    height: 56,
+                    child: FilledButton.icon(
+                      onPressed: _isLoading ? null : _saveSignature,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_circle, size: 20),
+                      label: Text(
+                        _isLoading ? 'ກຳລັງບັນທຶກ...' : 'ຢືນຢັນການເຊັນຮັບ',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'NotoSansLao',
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.blue.shade600,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Text(
+                    DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                      fontFamily: 'NotoSansLao',
+                    ),
                   ),
                 ],
               ),
-              child: SfSignaturePad(
-                key: signatureGlobalKey,
-                backgroundColor: _cardColor,
-                strokeColor: Colors.black,
-                minimumStrokeWidth: 1.0,
-                maximumStrokeWidth: 4.0,
-              ),
             ),
-            const SizedBox(height: 15),
-            Row(
-              mainAxisAlignment:
-                  MainAxisAlignment.end, // Align clear button to end
-              children: <Widget>[
-                TextButton.icon(
-                  onPressed: _handleClearButtonPressed,
-                  icon: Icon(Icons.clear, color: _clearButtonColor, size: 20),
-                  label: Text(
-                    'ລົບລາຍເຊັນ',
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      color: _clearButtonColor,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              height: 55, // Fixed height for the button
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _buttonColor, // Green button for save
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                      12,
-                    ), // Rounded button corners
-                  ),
-                  elevation: 5, // Add shadow
-                ),
-                onPressed: _isLoading
-                    ? null
-                    : _handleSaveButtonPressed, // Disable when loading
-                icon: _isLoading
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const FaIcon(
-                        FontAwesomeIcons
-                            .solidFloppyDisk, // Use solid icon for clarity
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                label: Text(
-                  _isLoading ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກລາຍເຊັນ",
-                  style: const TextStyle(
-                    fontFamily: 'NotoSansLao',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

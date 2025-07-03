@@ -1,334 +1,290 @@
 import 'dart:convert';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:odgcashvan/Sale/comfirmdispatch.dart';
-import 'package:odgcashvan/utility/my_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'comfirmdispatch.dart';
 import 'imagePrint.dart';
+import '../utility/my_constant.dart';
 
 class ListOrder extends StatefulWidget {
-  ListOrder({super.key});
+  const ListOrder({super.key});
 
   @override
   State<ListOrder> createState() => _ListOrderState();
 }
 
 class _ListOrderState extends State<ListOrder> {
-  FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
-  var data = [];
+  List<dynamic> _orders = [];
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
-    showdata();
-    // ขอ permission สำหรับ iOS
-    _firebaseMessaging.requestPermission();
+    _initializeApp();
+  }
 
-    // รับข้อความที่เข้ามาเมื่อแอปเปิดอยู่ (foreground)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+  Future<void> _initializeApp() async {
+    await _setupFirebase();
+    await _loadOrders();
+  }
+
+  Future<void> _setupFirebase() async {
+    final messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission();
+
+    FirebaseMessaging.onMessage.listen((message) {
       if (message.notification != null) {
-        // แสดงการแจ้งเตือนแบบ In-app (AlertDialog)
-        _showInAppNotification(
-          message.notification!.title,
-          message.notification!.body,
-        );
+        _showNotification(message.notification!);
       }
     });
 
-    // ตรวจสอบว่าแอปได้รับข้อความระหว่างที่เปิดอยู่
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('Message clicked! ${message.data}');
-    });
-
-    // รับ token ของ FCM
-    _firebaseMessaging.getToken().then((token) {
-      print("FCM Token: $token");
-    });
+    final token = await messaging.getToken();
+    print("FCM Token: $token");
   }
 
-  // ฟังก์ชันในการแสดงการแจ้งเตือนในแอป
-  void _showInAppNotification(String? title, String? body) {
-    showCupertinoDialog(
+  void _showNotification(RemoteNotification notification) {
+    showDialog(
       context: context,
-      builder: (context) {
-        return CupertinoAlertDialog(
-          title: Text(title ?? 'New Notification'),
-          content: Text(
-            body ?? 'You have received a notification',
-            style: TextStyle(color: Colors.green[800]),
+      builder: (context) => AlertDialog(
+        title: Text(notification.title ?? 'ແຈ້ງເຕືອນ'),
+        content: Text(notification.body ?? ''),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ປິດ'),
           ),
-          actions: [
-            // TextButton(
-            //   onPressed: () {
-            //     Navigator.pop(context);
-            //     Navigator.pop(context);
-            //   },
-            //   child: Text('ອອກເລີຍ'),
-            // ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('ອອກ'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
-    // showDialog(
-    //   context: context,
-    //   builder: (BuildContext context) {
-    //     return AlertDialog(
-    //       title: Text(title ?? 'New Notification'),
-    //       content: Text(body ?? 'You have received a notification'),
-    //       actions: <Widget>[
-    //         TextButton(
-    //           child: Text('OK'),
-    //           onPressed: () {
-    //             Navigator.of(context).pop();
-    //             showdata();
-    //           },
-    //         ),
-    //       ],
-    //     );
-    //   },
-    // );
   }
 
-  Future<Null> showdata() async {
-    SharedPreferences preferences = await SharedPreferences.getInstance();
-    DateTime now = DateTime.now(); // Get current date and time
-    // var now = DateTime.now();
-    var formatter = DateFormat('yyyy-MM-dd');
-    String datas = json.encode({
-      "doc_date": formatter.format(now),
-      "sale_code": preferences.getString('usercode').toString(),
-      "cust_code": "",
-    });
-    var response = await post(
-      Uri.parse(MyConstant().domain + "/listorderincust"),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: datas,
-    );
-    var result = json.decode(response.body);
-    // var result = json.decode(response.body);
-    print(result);
-    setState(() {
-      data = result['list'];
-    });
+  Future<void> _loadOrders() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final response = await http.post(
+        Uri.parse('${MyConstant().domain}/listorderincust'),
+        headers: {'Content-Type': 'application/json; charset=UTF-8'},
+        body: json.encode({
+          "doc_date": DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          "sale_code": prefs.getString('usercode') ?? '',
+          "cust_code": "",
+        }),
+      );
+
+      final result = json.decode(response.body);
+      setState(() {
+        _orders = result['list'] ?? [];
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ເກີດຂໍ້ຜິດພາດ: $e')));
+      }
+    }
   }
 
-  Future<Null> deleteBillCount(id) async {
-    var response = await get(
-      Uri.parse(MyConstant().domain + "/deletesaleorderbill/" + id),
-    );
-    var result = json.decode(response.body);
-    showdata();
+  Future<void> _deleteOrder(String docNo) async {
+    try {
+      await http.get(
+        Uri.parse('${MyConstant().domain}/deletesaleorderbill/$docNo'),
+      );
+      await _loadOrders();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ລົບບໍ່ສຳເລັດ: $e')));
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: () async {
-          await showdata();
-        },
-        child: Container(
-          child: Column(
-            children: [
-              Expanded(
-                child: Container(
-                  margin: EdgeInsets.all(5),
-                  // height: 300,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    // borderRadius: BorderRadius.all(Radius.circular(1)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.5),
-                        spreadRadius: 1,
-                        blurRadius: 1,
-                        // offset: Offset(0, 3), // changes position of shadow
-                      ),
-                    ],
-                  ),
-                  child: ListView.builder(
-                    itemCount: data.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      return Card(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            1.0,
-                          ), // ปรับค่าความโค้งของขอบ
-                        ),
-                        elevation: 2, // ระดับเงา
-                        child: ListTile(
-                          // trailing: Icon(Icons.add_a_photo),
-                          title:
-                              data[index]['status'].toString() ==
-                                  'ເບີກຈ່າຍຂອງໃດ້'
-                              ? Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      '${data[index]['status']}',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Container(
-                                      height: 35,
-                                      child: OutlinedButton(
-                                        style: OutlinedButton.styleFrom(
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              5,
-                                            ), // Set the radius here
-                                          ),
-                                        ),
-                                        onPressed: () async {
-                                          await Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) =>
-                                                  ConfirmDispatchScreen(
-                                                    doc_no:
-                                                        data[index]['doc_no']
-                                                            .toString(),
-                                                  ),
-                                            ),
-                                          );
-                                          showdata();
-                                        },
-                                        child: Text("ຢືນຢັນການເບີກຈ່າຍ"),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      '${data[index]['status']}',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-
-                          subtitle: Column(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Divider(),
-                              Text('+ ວັນທີ:${data[index]['doc_date']}'),
-                              Text('+ ເລກທີ${data[index]['doc_no']}'),
-                              Text('+ ຈຳນວນ${data[index]['count_item']}'),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    'ມູນຄ່າບິນ: ${NumberFormat('#,##0').format(double.parse(data[index]['total_amount']))}',
-                                  ),
-                                ],
-                              ),
-                              Text("+++++++++++--------------------------"),
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: NeverScrollableScrollPhysics(),
-                                itemCount: data[index]['list'].length,
-                                itemBuilder: (context, innerIndex) {
-                                  return Column(
-                                    mainAxisAlignment: MainAxisAlignment.start,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '    ${data[index]['list'][innerIndex]['item_name']} ${data[index]['list'][innerIndex]['qty']} ${data[index]['list'][innerIndex]['unit_code']}',
-                                        style: TextStyle(
-                                          color:
-                                              data[index]['list'][innerIndex]['remark'] ==
-                                                  'free'
-                                              ? Color.fromARGB(
-                                                  255,
-                                                  237,
-                                                  111,
-                                                  102,
-                                                )
-                                              : Colors.green[600],
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              Divider(),
-                              data[index]['status'].toString() == 'ສຳເລັດ'
-                                  ? Container(
-                                      width: 120,
-                                      child: OutlinedButton(
-                                        onPressed: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => PrintImage(
-                                                doc_no: data[index]['doc_no']
-                                                    .toString(),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.print),
-                                            Text("ພີມບິນ"),
-                                          ],
-                                        ),
-                                      ),
-                                    )
-                                  : Container(),
-                            ],
-                          ),
-                          onLongPress: () {
-                            showCupertinoDialog(
-                              context: context,
-                              builder: (context) {
-                                return CupertinoAlertDialog(
-                                  title: Text("ລົບເລີຍ"),
-                                  content: Text("ຢືນຢັນການລົບ"),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () {
-                                        deleteBillCount(data[index]['doc_no']);
-                                        Navigator.pop(context);
-                                      },
-                                      child: Text('ລົບເລີຍ'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: Text('ກັບຄືນ'),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  ),
+        onRefresh: _loadOrders,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _orders.isEmpty
+            ? const Center(
+                child: Text(
+                  'ບໍ່ມີຂໍ້ມູນ',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: _orders.length,
+                itemBuilder: (context, index) =>
+                    _buildOrderCard(_orders[index]),
               ),
+      ),
+    );
+  }
+
+  Widget _buildOrderCard(Map<String, dynamic> order) {
+    final status = order['status']?.toString() ?? '';
+    final isDispatchable = status == 'ເບີກຈ່າຍຂອງໃດ້';
+    final isCompleted = status == 'ສຳເລັດ';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onLongPress: () => _showDeleteDialog(order['doc_no']?.toString() ?? ''),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildOrderHeader(order, isDispatchable),
+              const SizedBox(height: 12),
+              _buildOrderInfo(order),
+              const SizedBox(height: 8),
+              _buildOrderItems(order['list'] ?? []),
+              if (isCompleted) ...[
+                const SizedBox(height: 12),
+                _buildPrintButton(order['doc_no']?.toString() ?? ''),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildOrderHeader(Map<String, dynamic> order, bool isDispatchable) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(
+            order['status']?.toString() ?? '',
+            style: const TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+        ),
+        if (isDispatchable)
+          ElevatedButton(
+            onPressed: () =>
+                _navigateToConfirm(order['doc_no']?.toString() ?? ''),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            child: const Text('ຢືນຢັນການເບີກຈ່າຍ'),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildOrderInfo(Map<String, dynamic> order) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('ວັນທີ: ${order['doc_date'] ?? ''}'),
+        Text('ເລກທີ: ${order['doc_no'] ?? ''}'),
+        Text('ຈຳນວນ: ${order['count_item'] ?? 0}'),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            'ມູນຄ່າ: ${_formatAmount(order['total_amount'])}',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOrderItems(List<dynamic> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        ...items.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 4),
+            child: Text(
+              '${item['item_name'] ?? ''} ${item['qty'] ?? 0} ${item['unit_code'] ?? ''}',
+              style: TextStyle(
+                color: item['remark'] == 'free'
+                    ? Colors.red
+                    : Colors.green.shade600,
+              ),
+            ),
+          ),
+        ),
+        const Divider(),
+      ],
+    );
+  }
+
+  Widget _buildPrintButton(String docNo) {
+    return SizedBox(
+      width: 120,
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => PrintImage(doc_no: docNo)),
+        ),
+        icon: const Icon(Icons.print),
+        label: const Text('ພີມບິນ'),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(String docNo) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ລົບເລີຍ'),
+        content: const Text('ຢືນຢັນການລົບ'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteOrder(docNo);
+            },
+            child: const Text('ລົບເລີຍ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ກັບຄືນ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _navigateToConfirm(String docNo) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConfirmDispatchScreen(doc_no: docNo),
+      ),
+    );
+    await _loadOrders();
+  }
+
+  String _formatAmount(dynamic amount) {
+    try {
+      final value = double.parse(amount?.toString() ?? '0');
+      return NumberFormat('#,##0').format(value);
+    } catch (e) {
+      return '0';
+    }
   }
 }

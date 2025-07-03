@@ -10,14 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'payment/homepayment.dart';
 import '../POS/stocksale.dart';
-import '../utility/app_colors.dart'; // Import your new AppColors
+import '../utility/app_colors.dart';
 
-class SalePage extends StatefulWidget {
+class ModernSalePage extends StatefulWidget {
   final String cust_code;
   final String cust_group_1;
   final String cust_group_2;
 
-  const SalePage({
+  const ModernSalePage({
     super.key,
     required this.cust_code,
     required this.cust_group_1,
@@ -25,22 +25,54 @@ class SalePage extends StatefulWidget {
   });
 
   @override
-  State<SalePage> createState() => _SalePageState();
+  State<ModernSalePage> createState() => _ModernSalePageState();
 }
 
-class _SalePageState extends State<SalePage> {
+class _ModernSalePageState extends State<ModernSalePage>
+    with TickerProviderStateMixin {
   List _availableStock = [];
   double _totalAmount = 0.00;
   List<Map<String, dynamic>> _currentOrderItems = [];
 
-  // Number formatter for currency display
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   final NumberFormat _currencyFormatter = NumberFormat('#,##0.00');
 
   @override
   void initState() {
     super.initState();
+    _initAnimations();
     _fetchAvailableStock();
     _refreshOrderItems();
+  }
+
+  void _initAnimations() {
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchAvailableStock() async {
@@ -50,17 +82,10 @@ class _SalePageState extends State<SalePage> {
 
     if (whCode == null || whCode.isEmpty || shCode == null || shCode.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'ຂໍ້ມູນສາງບໍ່ຄົບຖ້ວນ. ບໍ່ສາມາດໂຫຼດສິນຄ້າ.',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.redAccent,
-          ),
+        _showCompactSnackBar(
+          'ຂໍ້ມູນສາງບໍ່ຄົບຖ້ວນ. ບໍ່ສາມາດໂຫຼດສິນຄ້າ.',
+          AppColors.redAccent,
+          Icons.error_outline,
         );
       }
       setState(() => _availableStock = []);
@@ -83,21 +108,42 @@ class _SalePageState extends State<SalePage> {
       setState(() => _availableStock = result['list'] ?? []);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດສິນຄ້າ: $e',
-              style: const TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.redAccent,
-          ),
+        _showCompactSnackBar(
+          'ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດສິນຄ້າ',
+          AppColors.redAccent,
+          Icons.error_outline,
         );
       }
       setState(() => _availableStock = []);
     }
+  }
+
+  void _showCompactSnackBar(String message, Color color, IconData icon) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: AppColors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontFamily: 'NotoSansLao',
+                  color: AppColors.white,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _refreshOrderItems() async {
@@ -111,19 +157,17 @@ class _SalePageState extends State<SalePage> {
             (double.tryParse(e['sum_amount']?.toString() ?? '0.0') ?? 0.0),
       );
     });
+    _animationController.reset();
+    _animationController.forward();
   }
 
   void _deleteOrderItem(String id) async {
     await SQLHelper.deleteItemOrder(id);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'ລົບລາຍການສຳເລັດ',
-            style: TextStyle(fontFamily: 'NotoSansLao', color: AppColors.white),
-          ),
-          backgroundColor: AppColors.redAccent,
-        ),
+      _showCompactSnackBar(
+        'ລົບລາຍການສຳເລັດ',
+        Colors.green,
+        Icons.check_circle_outline,
       );
     }
     _refreshOrderItems();
@@ -138,11 +182,12 @@ class _SalePageState extends State<SalePage> {
           style: TextStyle(
             fontFamily: 'NotoSansLao',
             fontWeight: FontWeight.bold,
+            fontSize: 16,
           ),
         ),
         content: Text(
-          "ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລົບ $itemName ນີ້ອອກຈາກລາຍການ?",
-          style: const TextStyle(fontFamily: 'NotoSansLao'),
+          "ລົບ $itemName ອອກຈາກລາຍການ?",
+          style: const TextStyle(fontFamily: 'NotoSansLao', fontSize: 14),
         ),
         actions: [
           CupertinoDialogAction(
@@ -155,6 +200,7 @@ class _SalePageState extends State<SalePage> {
               style: TextStyle(
                 fontFamily: 'NotoSansLao',
                 color: AppColors.redAccent,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -162,7 +208,10 @@ class _SalePageState extends State<SalePage> {
             onPressed: () => Navigator.pop(context),
             child: const Text(
               "ຍົກເລີກ",
-              style: TextStyle(fontFamily: 'NotoSansLao'),
+              style: TextStyle(
+                fontFamily: 'NotoSansLao',
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -170,69 +219,85 @@ class _SalePageState extends State<SalePage> {
     );
   }
 
-  // --- New: Show Payment Method Selection Bottom Sheet ---
-  void _showPaymentMethodSelection() {
+  void _showModernPaymentSelection() {
     if (_currentOrderItems.isEmpty || _totalAmount <= 0) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'ບໍ່ມີສິນຄ້າໃນລາຍການ ຫຼື ມູນຄ່າເປັນ 0.',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.orangeAccent,
-          ),
-        );
-      }
+      _showCompactSnackBar(
+        'ບໍ່ມີສິນຄ້າໃນລາຍການ',
+        AppColors.orangeAccent,
+        Icons.warning_amber_outlined,
+      );
       return;
     }
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent, // Make the background transparent
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (BuildContext bc) {
         return Container(
           decoration: const BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.all(16.0),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min, // Take minimum height
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'ເລືອກວິທີຊໍາລະເງິນ',
-                  style: TextStyle(
-                    fontFamily: 'NotoSansLao',
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryBlue,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: Icon(Icons.money, color: AppColors.salesAccentColor),
-                  title: const Text(
-                    'ຈ່າຍດ້ວຍເງິນສົດ',
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+          child: Container(
+            margin: const EdgeInsets.all(2),
+            decoration: const BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.grey300,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  trailing: const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 18,
-                    color: AppColors.textMutedColor,
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF3B82F6), Color(0xFF1E40AF)],
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.payments_outlined,
+                          color: AppColors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'ວິທີຊໍາລະເງິນ',
+                        style: TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.black87,
+                        ),
+                      ),
+                    ],
                   ),
-                  onTap: () {
-                    Navigator.pop(bc); // Close the bottom sheet
-                    Navigator.push(
+                  const SizedBox(height: 20),
+                  _buildModernPaymentOption(
+                    bc,
+                    Icons.account_balance_wallet_outlined,
+                    'ຈ່າຍດ້ວຍເງິນສົດ',
+                    const Color(0xFF059669),
+                    () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => HomePayment(
@@ -240,28 +305,15 @@ class _SalePageState extends State<SalePage> {
                           total_amount: _totalAmount.toString(),
                         ),
                       ),
-                    ).then((value) => _refreshOrderItems());
-                  },
-                ),
-                Divider(color: AppColors.grey300),
-                ListTile(
-                  leading: Icon(Icons.qr_code, color: AppColors.primaryBlue),
-                  title: const Text(
+                    ).then((value) => _refreshOrderItems()),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildModernPaymentOption(
+                    bc,
+                    Icons.qr_code_scanner_outlined,
                     'ຈ່າຍດ້ວຍການໂອນ',
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  trailing: const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 18,
-                    color: AppColors.textMutedColor,
-                  ),
-                  onTap: () {
-                    Navigator.pop(bc); // Close the bottom sheet
-                    Navigator.push(
+                    const Color(0xFF7C3AED),
+                    () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => Payment(
@@ -269,11 +321,11 @@ class _SalePageState extends State<SalePage> {
                           total_amount: _totalAmount.toString(),
                         ),
                       ),
-                    ).then((value) => _refreshOrderItems());
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
+                    ).then((value) => _refreshOrderItems()),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         );
@@ -281,132 +333,397 @@ class _SalePageState extends State<SalePage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.lightBlue,
-      appBar: AppBar(
-        title: const Text(
-          "ໜ້າຂາຍສິນຄ້າ",
-          style: TextStyle(color: AppColors.white, fontFamily: 'NotoSansLao'),
+  Widget _buildModernPaymentOption(
+    BuildContext bc,
+    IconData icon,
+    String title,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2), width: 1),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: AppColors.white, size: 20),
         ),
-        backgroundColor: AppColors.primaryBlue,
-        centerTitle: true,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.white),
-          onPressed: () => Navigator.pop(context),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: color),
+        onTap: () {
+          Navigator.pop(bc);
+          onTap();
+        },
+      ),
+    );
+  }
+
+  Widget _buildCompactHeader() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1E40AF), Color(0xFF3B82F6)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF3B82F6).withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_rounded,
+                  color: AppColors.white,
+                  size: 20,
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
+              const Expanded(
+                child: Text(
+                  "ໜ້າຂາຍສິນຄ້າ",
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_currentOrderItems.length}',
+                  style: const TextStyle(
+                    color: AppColors.white,
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16.0),
-        decoration: BoxDecoration(
-          color: AppColors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
+    );
+  }
+
+  Widget _buildCompactItemCard(Map<String, dynamic> item, int index) {
+    final double itemSumAmount =
+        double.tryParse(item['sum_amount']?.toString() ?? '0.0') ?? 0.0;
+    final bool isMainProduct = item['product_type'] == 'main';
+
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isMainProduct
+                          ? [const Color(0xFF3B82F6), const Color(0xFF1E40AF)]
+                          : [const Color(0xFFF59E0B), const Color(0xFFD97706)],
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    isMainProduct
+                        ? Icons.inventory_2_outlined
+                        : Icons.card_giftcard_outlined,
+                    color: AppColors.white,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item['item_name'],
+                        style: const TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: AppColors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            '${item['qty']} ${item['unit_code']}',
+                            style: const TextStyle(
+                              fontFamily: 'NotoSansLao',
+                              fontSize: 11,
+                              color: Color(0xFF6B7280),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (item['discount'] != '0')
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '-${item['discount']}%',
+                                style: const TextStyle(
+                                  fontFamily: 'NotoSansLao',
+                                  fontSize: 9,
+                                  color: AppColors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _currencyFormatter.format(itemSumAmount),
+                      style: const TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF059669),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onTap: () => _confirmDeleteOrderItem(
+                        item['item_code'].toString(),
+                        item['item_name'].toString(),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFEF4444),
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
         ),
-        child: SafeArea(
+      ),
+    );
+  }
+
+  Widget _buildCompactBottomBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "ມູນຄ່າທັງໝົດ:",
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 18,
-                      color: AppColors.textMutedColor,
-                      fontWeight: FontWeight.w500,
-                    ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFF3F4F6), Color(0xFFE5E7EB)],
                   ),
-                  Text(
-                    _currencyFormatter.format(_totalAmount),
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 22,
-                      color: AppColors.salesAccentColor,
-                      fontWeight: FontWeight.bold,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "ມູນຄ່າທັງໝົດ:",
+                      style: TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 15,
+                        color: Color(0xFF374151),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                    Text(
+                      _currencyFormatter.format(_totalAmount),
+                      style: const TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 18,
+                        color: Color(0xFF059669),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                StockSale(custcode: widget.cust_code),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF6366F1).withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
-                        ).then((value) => _refreshOrderItems());
-                      },
-                      icon: const Icon(
-                        Icons.add_shopping_cart,
-                        color: AppColors.white,
-                        size: 20,
+                        ],
                       ),
-                      label: const Text(
-                        "ເພີ່ມສິນຄ້າ",
-                        style: TextStyle(
-                          fontFamily: 'NotoSansLao',
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ModernStockSale(custcode: widget.cust_code),
+                            ),
+                          ).then((value) => _refreshOrderItems());
+                        },
+                        icon: const Icon(
+                          Icons.add_shopping_cart_outlined,
                           color: AppColors.white,
-                          fontSize: 15,
+                          size: 18,
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.buttonPrimaryColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                        label: const Text(
+                          "ເພີ່ມສິນຄ້າ",
+                          style: TextStyle(
+                            fontFamily: 'NotoSansLao',
+                            color: AppColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 12,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
                         ),
-                        elevation: 3,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed:
-                          _showPaymentMethodSelection, // Call the new selection function
-                      icon: const Icon(
-                        Icons.attach_money_rounded,
-                        size: 20,
-                        color: AppColors.white,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF059669), Color(0xFF047857)],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF059669).withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      label: const Text(
-                        "ຮັບເງິນ",
-                        style: TextStyle(
-                          fontFamily: 'NotoSansLao',
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
+                      child: ElevatedButton.icon(
+                        onPressed: _showModernPaymentSelection,
+                        icon: const Icon(
+                          Icons.payments_outlined,
+                          size: 18,
                           color: AppColors.white,
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.salesAccentColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                        label: const Text(
+                          "ຮັບເງິນ",
+                          style: TextStyle(
+                            fontFamily: 'NotoSansLao',
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.white,
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 12,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
                         ),
-                        elevation: 3,
                       ),
                     ),
                   ),
@@ -416,132 +733,79 @@ class _SalePageState extends State<SalePage> {
           ),
         ),
       ),
-      body: _currentOrderItems.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.shopping_bag_outlined,
-                    size: 80,
-                    color: AppColors.grey300,
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    "ຍັງບໍ່ມີສິນຄ້າໃນລາຍການຂາຍ.",
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 18,
-                      color: AppColors.textMutedColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "ກົດປຸ່ມ 'ເພີ່ມສິນຄ້າ' ເພື່ອເລີ່ມຕົ້ນ.",
-                    style: TextStyle(
-                      fontFamily: 'NotoSansLao',
-                      fontSize: 15,
-                      color: AppColors.grey500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            )
-          : ListView.builder(
-              itemCount: _currentOrderItems.length,
-              padding: const EdgeInsets.all(16.0),
-              itemBuilder: (_, index) {
-                final item = _currentOrderItems[index];
-                final double itemSumAmount =
-                    double.tryParse(item['sum_amount']?.toString() ?? '0.0') ??
-                    0.0;
+    );
+  }
 
-                return Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: item['product_type'] == 'main'
-                                ? AppColors.primaryBlue.withOpacity(0.1)
-                                : AppColors.orange100.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            item['product_type'] == 'main'
-                                ? Icons.inventory_2_outlined
-                                : Icons.card_giftcard_outlined,
-                            color: item['product_type'] == 'main'
-                                ? AppColors.primaryBlue
-                                : AppColors.orange600,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item['item_name'],
-                                style: const TextStyle(
-                                  fontFamily: 'NotoSansLao',
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: AppColors.black87,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Column(
+        children: [
+          _buildCompactHeader(),
+          Expanded(
+            child: _currentOrderItems.isEmpty
+                ? Center(
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFF6B7280).withOpacity(0.1),
+                                  const Color(0xFF6B7280).withOpacity(0.05),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${_currencyFormatter.format(double.tryParse(item['price']?.toString() ?? '0.0') ?? 0.0)} x ${item['qty']} ${item['unit_code']} (-${item['discount']}%)',
-                                style: TextStyle(
-                                  fontFamily: 'NotoSansLao',
-                                  fontSize: 12,
-                                  color: AppColors.textMutedColor,
-                                ),
-                              ),
-                            ],
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(
+                              Icons.shopping_bag_outlined,
+                              size: 40,
+                              color: Color(0xFF9CA3AF),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _currencyFormatter.format(itemSumAmount),
-                          style: TextStyle(
-                            fontFamily: 'NotoSansLao',
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.salesAccentColor,
+                          const SizedBox(height: 16),
+                          const Text(
+                            "ຍັງບໍ່ມີສິນຄ້າໃນລາຍການ",
+                            style: TextStyle(
+                              fontFamily: 'NotoSansLao',
+                              fontSize: 16,
+                              color: Color(0xFF6B7280),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: AppColors.redAccent,
+                          const SizedBox(height: 4),
+                          Text(
+                            "ກົດ 'ເພີ່ມສິນຄ້າ' ເພື່ອເລີ່ມຕົ້ນ",
+                            style: TextStyle(
+                              fontFamily: 'NotoSansLao',
+                              fontSize: 13,
+                              color: const Color(0xFF9CA3AF),
+                            ),
                           ),
-                          onPressed: () => _confirmDeleteOrderItem(
-                            item['item_code'].toString(),
-                            item['item_name'].toString(),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                  )
+                : ListView.builder(
+                    itemCount: _currentOrderItems.length,
+                    padding: const EdgeInsets.all(12),
+                    itemBuilder: (_, index) {
+                      return _buildCompactItemCard(
+                        _currentOrderItems[index],
+                        index,
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+          ),
+          _buildCompactBottomBar(),
+        ],
+      ),
     );
   }
 }

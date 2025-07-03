@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utility/my_constant.dart';
-import '../utility/app_colors.dart'; // Assuming you have this from the previous interaction
+import '../utility/app_colors.dart';
 
 class StockBalance extends StatefulWidget {
   const StockBalance({super.key});
@@ -14,88 +14,45 @@ class StockBalance extends StatefulWidget {
 }
 
 class _StockBalanceState extends State<StockBalance> {
-  final ScrollController _scrollController = ScrollController();
-  final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+  final TextEditingController _search = TextEditingController();
 
-  List<dynamic> _allData = [];
+  List<dynamic> _data = [];
   int _offset = 0;
-  final int _limit = 10;
-  bool _isLoading = false;
+  final int _limit = 15;
+  bool _loading = false;
   bool _hasMore = true;
-  String _searchQuery = "";
-
-  // Define consistent text styles
-  final TextStyle _titleTextStyle = const TextStyle(
-    fontFamily: 'NotoSansLao',
-    fontWeight: FontWeight.bold,
-    fontSize: 16,
-    color: AppColors.black87,
-  );
-  final TextStyle _subtitleTextStyle = const TextStyle(
-    fontFamily: 'NotoSansLao',
-    fontSize: 13,
-    color: AppColors.textMutedColor,
-  );
-  final TextStyle _balanceTextStyle = const TextStyle(
-    fontFamily: 'NotoSansLao',
-    fontWeight: FontWeight.bold,
-    fontSize: 15,
-    color: AppColors.salesAccentColor, // Using green for positive balance
-  );
-  final TextStyle _noDataTextStyle = TextStyle(
-    fontFamily: 'NotoSansLao',
-    fontSize: 18,
-    color: AppColors.textMutedColor,
-    fontWeight: FontWeight.w500,
-  );
-  final TextStyle _loadingTextStyle = const TextStyle(
-    fontFamily: 'NotoSansLao',
-    fontSize: 14,
-    color: AppColors.textMutedColor,
-  );
+  String _query = "";
 
   @override
   void initState() {
     super.initState();
-    _fetchStock();
-    _scrollController.addListener(() {
-      if (_scrollController.position.pixels >=
-              _scrollController.position.maxScrollExtent - 100 &&
-          !_isLoading &&
-          _hasMore) {
-        _fetchStock();
-      }
-    });
+    _fetch();
+    _scroll.addListener(_onScroll);
   }
 
-  Future<void> _fetchStock() async {
-    if (_isLoading) return; // Prevent multiple simultaneous fetches
-    setState(() => _isLoading = true);
-
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? wh = prefs.getString('wh_code');
-    String? sh = prefs.getString('sh_code');
-
-    if (wh == null || wh.isEmpty || sh == null || sh.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'ຂໍ້ມູນສາງບໍ່ຄົບຖ້ວນ. ບໍ່ສາມາດໂຫຼດສິນຄ້າ.',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.redAccent,
-          ),
-        );
-      }
-      setState(() => _isLoading = false);
-      return;
+  void _onScroll() {
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 50 &&
+        !_loading &&
+        _hasMore) {
+      _fetch();
     }
+  }
+
+  Future<void> _fetch() async {
+    if (_loading) return;
+    setState(() => _loading = true);
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final wh = prefs.getString('wh_code');
+      final sh = prefs.getString('sh_code');
+
+      if (wh?.isEmpty != false || sh?.isEmpty != false) {
+        _error('ຂໍ້ມູນສາງບໍ່ຄົບຖ້ວນ');
+        return;
+      }
+
       final res = await http.post(
         Uri.parse('${MyConstant().domain}/vanstocksale'),
         headers: {"Content-Type": "application/json"},
@@ -104,300 +61,343 @@ class _StockBalanceState extends State<StockBalance> {
           "sh_code": sh,
           "limit": _limit,
           "offset": _offset,
-          // IMPORTANT: "cust_group_1": "102" might be too restrictive here.
-          // For general stock balance, you might not want to filter by customer group.
-          // Consider if this filter is truly needed for a "Stock Balance" screen.
-          // If it is, keep it. If not, remove it for a broader stock view.
-          "cust_group_1": "102", // Keep if this is a business requirement
-          "search": _searchQuery.trim(),
+          "cust_group_1": "102",
+          "search": _query.trim(),
         }),
       );
 
       if (res.statusCode == 200) {
-        final json = jsonDecode(res.body);
-        final List<dynamic> newItems = json['list'] ?? [];
+        final data = jsonDecode(res.body);
+        final items = List<dynamic>.from(data['list'] ?? []);
 
         setState(() {
           _offset += _limit;
-          _allData.addAll(newItems);
-          _hasMore =
-              newItems.length ==
-              _limit; // Check if less than limit, means no more data
+          _data.addAll(items);
+          _hasMore = items.length == _limit;
         });
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'ຂໍ້ຜິດພາດຈາກເຊີເວີ: ${res.statusCode}',
-                style: const TextStyle(
-                  fontFamily: 'NotoSansLao',
-                  color: AppColors.white,
-                ),
-              ),
-              backgroundColor: AppColors.redAccent,
-            ),
-          );
-        }
-        print("Server error: ${res.statusCode} - ${res.body}");
+        _error('ຂໍ້ຜິດພາດເຊີເວີ: ${res.statusCode}');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'ເກີດຂໍ້ຜິດພາດໃນການເຊື່ອມຕໍ່: $e',
-              style: const TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.redAccent,
-          ),
-        );
-      }
-      print("Network error: $e");
+      _error('ເຊື່ອມຕໍ່ບໍ່ໄດ້: ${e.toString()}');
+    } finally {
+      setState(() => _loading = false);
     }
-
-    setState(() => _isLoading = false);
   }
 
-  void _applyFilter(String query) {
+  void _error(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg, style: const TextStyle(fontFamily: 'NotoSansLao')),
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
+  }
+
+  void _searchItems(String q) {
     setState(() {
-      _searchQuery = query;
+      _query = q;
       _offset = 0;
-      _allData.clear();
-      _hasMore = true; // Assume there's more until proven otherwise
+      _data.clear();
+      _hasMore = true;
     });
-    // Add a small delay for better user experience for typing search
-    // This prevents too many rapid API calls
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (_searchQuery == query) {
-        // Only fetch if query hasn't changed during delay
-        _fetchStock();
-      }
+
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (_query == q && mounted) _fetch();
     });
   }
 
-  Future<void> _scanBarcode() async {
+  Future<void> _scan() async {
     try {
-      var result = await BarcodeScanner.scan();
+      final result = await BarcodeScanner.scan();
       if (result.rawContent.isNotEmpty) {
-        _searchController.text = result.rawContent;
-        _applyFilter(result.rawContent);
+        _search.text = result.rawContent;
+        _searchItems(result.rawContent);
       }
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'ການສະແກນຖືກຍົກເລີກ ຫຼື ເກີດຂໍ້ຜິດພາດ: $e',
-              style: const TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.white,
-              ),
-            ),
-            backgroundColor: AppColors.orangeAccent,
-          ),
-        );
-      }
+    } catch (e) {
+      _error('ສະແກນລົ້ມເຫຼວ');
     }
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _offset = 0;
+      _data.clear();
+      _hasMore = true;
+    });
+    await _fetch();
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
-    _searchController.dispose();
+    _scroll.dispose();
+    _search.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.lightBlue,
-
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() {
-            _offset = 0;
-            _allData.clear();
-            _hasMore = true;
-          });
-          await _fetchStock();
-        },
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (value) => _applyFilter(
-                  value,
-                ), // Use onChanged directly with _applyFilter
-                decoration: InputDecoration(
-                  hintText: 'ຄົ້ນຫາສິນຄ້າ...',
-                  hintStyle: _subtitleTextStyle,
-                  prefixIcon: const Icon(
-                    Icons.search,
-                    color: AppColors.primaryBlue,
-                  ),
-                  suffixIcon: IconButton(
-                    icon: const Icon(
-                      Icons.qr_code_scanner,
-                      color: AppColors.primaryBlue,
+      backgroundColor: Colors.grey.shade50,
+      body: Column(
+        children: [
+          // Modern Search Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(24),
                     ),
-                    onPressed: _scanBarcode,
-                  ),
-                  filled: true,
-                  fillColor: AppColors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                      color: AppColors.primaryBlue,
-                      width: 2,
+                    child: TextField(
+                      controller: _search,
+                      onChanged: _searchItems,
+                      style: const TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 14,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'ຄົ້ນຫາສິນຄ້າ...',
+                        hintStyle: TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          color: Colors.grey.shade500,
+                          fontSize: 14,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: Colors.grey.shade600,
+                          size: 20,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                Container(
+                  height: 48,
+                  width: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryBlue,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: IconButton(
+                    onPressed: _scan,
+                    icon: const Icon(
+                      Icons.qr_code_scanner,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Content Area
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              color: AppColors.primaryBlue,
+              child: _data.isEmpty && !_loading ? _buildEmpty() : _buildList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(60),
+            ),
+            child: Icon(
+              Icons.inventory_2_outlined,
+              size: 60,
+              color: Colors.grey.shade400,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            _query.isEmpty ? "ຍັງບໍ່ມີຂໍ້ມູນສິນຄ້າ" : "ບໍ່ພົບສິນຄ້າ",
+            style: const TextStyle(
+              fontFamily: 'NotoSansLao',
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _query.isEmpty ? "ດຶງລາຍການລົງມາເພື່ອເບິ່ງ" : "ລອງຄົ້ນຫາດ້ວຍຄຳອື່ນ",
+            style: TextStyle(
+              fontFamily: 'NotoSansLao',
+              fontSize: 14,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    return ListView.builder(
+      controller: _scroll,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: _data.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= _data.length) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: _loading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      "ສິ້ນສຸດລາຍການ",
+                      style: TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        color: Colors.grey.shade500,
+                        fontSize: 13,
+                      ),
+                    ),
+            ),
+          );
+        }
+
+        return _buildItem(_data[index]);
+      },
+    );
+  }
+
+  Widget _buildItem(Map<String, dynamic> item) {
+    final qty = double.tryParse(item['balance_qty']?.toString() ?? '0') ?? 0.0;
+    final inStock = qty > 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Status Indicator
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: inStock ? Colors.green : Colors.red.shade400,
+                borderRadius: BorderRadius.circular(6),
               ),
             ),
+            const SizedBox(width: 16),
+
+            // Product Info
             Expanded(
-              child: _allData.isEmpty && !_isLoading
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.inventory_2_outlined,
-                            size: 80,
-                            color: AppColors.grey300,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            _searchQuery.isEmpty
-                                ? "ຍັງບໍ່ມີຂໍ້ມູນສິນຄ້າ."
-                                : "ບໍ່ພົບສິນຄ້າສໍາລັບ '${_searchQuery}'.",
-                            style: _noDataTextStyle,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _searchQuery.isEmpty
-                                ? "ລອງດຶງຂໍ້ມູນລົງມາເພີ່ມ."
-                                : "ລອງຄົ້ນຫາດ້ວຍຄໍາອື່ນ.",
-                            style: _subtitleTextStyle,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      itemCount: _allData.length + (_hasMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index >= _allData.length) {
-                          return Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Center(
-                              child: _isLoading
-                                  ? const CircularProgressIndicator(
-                                      color: AppColors.primaryBlue,
-                                    )
-                                  : Text(
-                                      "ບໍ່ມີສິນຄ້າເພີ່ມເຕີມ",
-                                      style: _loadingTextStyle,
-                                    ),
-                            ),
-                          );
-                        }
-
-                        final item = _allData[index];
-                        final double balanceQty =
-                            double.tryParse(
-                              item['balance_qty']?.toString() ?? '0.0',
-                            ) ??
-                            0.0;
-                        final Color balanceColor = balanceQty > 0
-                            ? AppColors.salesAccentColor
-                            : AppColors.redAccent;
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          elevation:
-                              3, // Add more elevation for a floating effect
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              15,
-                            ), // More rounded corners
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(
-                              16.0,
-                            ), // Increase padding
-                            child: Row(
-                              children: [
-                                // Leading icon
-                                Icon(
-                                  Icons
-                                      .category_outlined, // Or Icons.inventory_2_outlined
-                                  color: AppColors.primaryBlue,
-                                  size: 28,
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item['ic_name'] ?? 'ບໍ່ມີຊື່ສິນຄ້າ',
-                                        style: _titleTextStyle,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        "ຫົວໜ່ວຍ: ${item['ic_unit_code'] ?? 'N/A'}",
-                                        style: _subtitleTextStyle,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                // Balance quantity
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      "ຄົງເຫຼືອ:",
-                                      style: _subtitleTextStyle,
-                                    ),
-                                    Text(
-                                      balanceQty.toStringAsFixed(
-                                        0,
-                                      ), // Display as integer if no decimals are needed
-                                      style: _balanceTextStyle.copyWith(
-                                        color: balanceColor,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item['ic_name'] ?? 'ບໍ່ມີຊື່',
+                    style: const TextStyle(
+                      fontFamily: 'NotoSansLao',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      item['ic_unit_code'] ?? 'N/A',
+                      style: TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Balance
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  qty.toStringAsFixed(0),
+                  style: TextStyle(
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: inStock ? Colors.green : Colors.red.shade400,
+                  ),
+                ),
+                Text(
+                  'ຄົງເຫຼືອ',
+                  style: TextStyle(
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

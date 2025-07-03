@@ -59,7 +59,7 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
     );
 
     _loadSavedCredentials();
-    // _setupFirebaseMessaging();
+    _setupFirebaseMessaging(); // แก้ไข: ย้ายมาใน initState()
     _animationController.forward(); // Start fade-in animation
   }
 
@@ -68,23 +68,108 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
     _userController.dispose();
     _passwordController.dispose();
     _animationController.dispose();
+    // ลบ _setupFirebaseMessaging() ออกจาก dispose()
     super.dispose();
   }
 
   void _setupFirebaseMessaging() async {
-    await _firebaseMessaging.requestPermission();
-    _firebaseMessaging.getToken().then((token) {
+    try {
+      // ขอสิทธิ์การแจ้งเตือน
+      NotificationSettings settings = await _firebaseMessaging
+          .requestPermission(
+            alert: true,
+            announcement: false,
+            badge: true,
+            carPlay: false,
+            criticalAlert: false,
+            provisional: false,
+            sound: true,
+          );
+
+      print('User granted permission: ${settings.authorizationStatus}');
+
+      // รับ FCM Token
+      String? token = await _firebaseMessaging.getToken();
       if (token != null) {
         setState(() {
           _fcmToken = token;
         });
         print("FCM Token: $_fcmToken");
-      }
-    });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('Message clicked! ${message.data}');
-    });
+        // บันทึก token ลงใน SharedPreferences
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcm_token', token);
+      }
+
+      // ฟัง token refresh
+      _firebaseMessaging.onTokenRefresh.listen((newToken) {
+        setState(() {
+          _fcmToken = newToken;
+        });
+        print("FCM Token refreshed: $newToken");
+
+        // อัปเดต token ใหม่ใน SharedPreferences
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setString('fcm_token', newToken);
+        });
+      });
+
+      // ฟังการคลิกข้อความ
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        print('Message clicked! ${message.data}');
+        _handleMessageClick(message);
+      });
+
+      // ฟังข้อความเมื่อ app อยู่ใน foreground
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        print('Got a message whilst in the foreground!');
+        print('Message data: ${message.data}');
+
+        if (message.notification != null) {
+          print(
+            'Message also contained a notification: ${message.notification}',
+          );
+          _showInAppNotification(message.notification!);
+        }
+      });
+    } catch (e) {
+      print('Error setting up Firebase Messaging: $e');
+    }
+  }
+
+  void _handleMessageClick(RemoteMessage message) {
+    // จัดการเมื่อผู้ใช้คลิกการแจ้งเตือน
+    if (message.data['type'] == 'order') {
+      // นำทางไปยังหน้าออเดอร์
+    } else if (message.data['type'] == 'promotion') {
+      // นำทางไปยังหน้าโปรโมชั่น
+    }
+  }
+
+  void _showInAppNotification(RemoteNotification notification) {
+    // แสดงการแจ้งเตือนใน app
+    showDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(
+          notification.title ?? 'การแจ้งเตือน',
+          style: const TextStyle(fontFamily: 'NotoSansLao'),
+        ),
+        content: Text(
+          notification.body ?? '',
+          style: const TextStyle(fontFamily: 'NotoSansLao'),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'ตกลง',
+              style: TextStyle(fontFamily: 'NotoSansLao'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _loadSavedCredentials() async {
@@ -93,6 +178,14 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
       _userController.text = preferences.getString('usercode') ?? '';
       _passwordController.text = preferences.getString('password') ?? '';
     });
+
+    // โหลด FCM token ที่บันทึกไว้
+    String? savedToken = preferences.getString('fcm_token');
+    if (savedToken != null && _fcmToken.isEmpty) {
+      setState(() {
+        _fcmToken = savedToken;
+      });
+    }
   }
 
   Future<void> _checkAuthen() async {
@@ -108,6 +201,20 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
     setState(() {
       _isLoading = true;
     });
+
+    // ตรวจสอบ FCM Token ก่อนส่ง
+    if (_fcmToken.isEmpty) {
+      try {
+        String? token = await _firebaseMessaging.getToken();
+        if (token != null) {
+          setState(() {
+            _fcmToken = token;
+          });
+        }
+      } catch (e) {
+        print('Error getting FCM token: $e');
+      }
+    }
 
     String data = json.encode({
       'username': _userController.text,
@@ -131,13 +238,12 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
         await prefs.setString('username', result['name_1'] ?? '');
         await prefs.setString('usercode', result['usercode'] ?? '');
         await prefs.setString('password', _passwordController.text);
+
         if (result['roles'] == 'sale') {
           await prefs.setString('wh_code', result['ic_wht'] ?? '');
           await prefs.setString('sh_code', result['ic_shelf'] ?? '');
           await prefs.setString('side_code', result['side'] ?? '');
           await prefs.setString('department_code', result['department'] ?? '');
-          // await prefs.setString('area_code', result['area_code'] ?? '');
-          // await prefs.setString('logistic_area', result['logistic_code'] ?? '');
           await prefs.setString('route_id', result['route_plan'] ?? '');
           Navigator.pushAndRemoveUntil(
             context,
@@ -512,6 +618,37 @@ class _LoginState extends State<Login> with SingleTickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 30),
+
+                  // --- FCM Token Display (เพิ่มการแสดง FCM Token) ---
+                  if (_fcmToken.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: _textColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.notifications_active,
+                            color: _textColor.withOpacity(0.8),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'FCM Token: ${_fcmToken.substring(0, 20)}...',
+                              style: TextStyle(
+                                color: _textColor.withOpacity(0.7),
+                                fontSize: 12,
+                                fontFamily: 'NotoSansLao',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
                   // --- Login Button ---
                   SizedBox(

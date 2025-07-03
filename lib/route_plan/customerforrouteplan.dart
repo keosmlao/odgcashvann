@@ -4,16 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart';
 import 'package:odgcashvan/database/sql_helper.dart';
 import 'package:odgcashvan/utility/my_constant.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Ensure this is imported if used elsewhere
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'customer/city.dart'; // Assuming these paths are correct
-import 'customer/province.dart'; // Assuming these paths are correct
+import 'customer/city.dart';
+import 'customer/province.dart';
 
 class CustomerForRouteplan extends StatefulWidget {
   final String from_route;
-  // province and city parameters are now managed internally for clarity,
-  // removed from constructor as they were commented out in Addplan originally.
-  // If you need them in constructor, please add them back.
+
   const CustomerForRouteplan({super.key, required this.from_route});
 
   @override
@@ -21,52 +19,69 @@ class CustomerForRouteplan extends StatefulWidget {
 }
 
 class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
-  List _availableCustomers = []; // Renamed 'data' for clarity
-  List<Map<String, dynamic>> _addedCustomers =
-      []; // Renamed '_journals' for clarity
-  bool _isLoading = false; // Renamed 'isLoading' for consistency
+  List _availableCustomers = [];
+  List<Map<String, dynamic>> _addedCustomers = [];
+  bool _isLoading = false;
 
-  String? _selectedProvinceCode; // Renamed for consistency
-  String? _selectedCityCode; // Renamed for consistency
+  String? _selectedProvinceCode;
+  String? _selectedCityCode;
 
-  final TextEditingController _searchQueryController =
-      TextEditingController(); // Renamed for clarity
+  final TextEditingController _searchQueryController = TextEditingController();
   final TextEditingController _provinceDisplayController =
-      TextEditingController(); // Renamed for clarity
-  final TextEditingController _cityDisplayController =
-      TextEditingController(); // Renamed for clarity
+      TextEditingController();
+  final TextEditingController _cityDisplayController = TextEditingController();
 
-  // Theme colors
-  final Color _primaryBlue = Colors.blue.shade600;
-  final Color _accentBlue = Colors.blue.shade800;
-  final Color _lightBlue = Colors.blue.shade50;
-  final Color _textMutedColor = Colors.grey.shade600;
+  // Theme colors - more descriptive names
+  final Color _primaryColor = Colors.blue.shade700;
+  final Color _accentColor = Colors.blue.shade900;
+  final Color _backgroundColor = Colors.grey.shade50;
+  final Color _textColor = Colors.grey.shade800;
+  final Color _lightTextColor = Colors.grey.shade600;
+  final Color _successColor = Colors.green.shade700;
+  final Color _errorColor = Colors.red.shade700;
 
   @override
   void initState() {
     super.initState();
-    _fetchAvailableCustomers(); // Initial data load
-    _refreshAddedCustomers(); // Load customers already added to the plan
+    _fetchAvailableCustomers();
+    _refreshAddedCustomers();
+    _searchQueryController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchQueryController.removeListener(_onSearchChanged);
+    _searchQueryController.dispose();
+    _provinceDisplayController.dispose();
+    _cityDisplayController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    // Debounce search to avoid too many API calls
+    // You might want to implement a debounce mechanism here
+    // For simplicity, we'll call directly, but for production,
+    // consider a Timer.debounce to reduce API calls.
+    _fetchAvailableCustomers();
   }
 
   void _refreshAddedCustomers() async {
+    setState(() => _isLoading = true); // Show loading while refreshing local DB
     final result = await SQLHelper.Allcustomer();
     setState(() {
       _addedCustomers = result;
+      _isLoading = false; // Hide loading after refreshing local DB
     });
   }
 
   Future<void> _fetchAvailableCustomers() async {
+    if (_isLoading) return; // Prevent multiple simultaneous fetches
     setState(() => _isLoading = true);
     try {
-      // SharedPreferences preferences = await SharedPreferences.getInstance(); // If sale_code is needed for this API
-      // String saleCode = preferences.getString('usercode') ?? ''; // Example if API requires it
-
       final payload = json.encode({
         'province': _selectedProvinceCode,
         'city': _selectedCityCode,
         'query': _searchQueryController.text.trim(),
-        // 'sale_code': saleCode, // Uncomment if your API needs sale_code here
       });
 
       final response = await post(
@@ -81,36 +96,13 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
           _availableCustomers = result['list'] ?? [];
         });
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'ຜິດພາດໃນການໂຫຼດລູກຄ້າ: ${response.statusCode}',
-                style: const TextStyle(
-                  fontFamily: 'NotoSansLao',
-                  color: Colors.white,
-                ),
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'ຜິດພາດໃນການໂຫຼດຂໍ້ມູນ: $e',
-              style: const TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: Colors.white,
-              ),
-            ),
-            backgroundColor: Colors.red,
-          ),
+        _showSnackBar(
+          'ຜິດພາດໃນການໂຫຼດລູກຄ້າ: ${response.statusCode}',
+          _errorColor,
         );
       }
+    } catch (e) {
+      _showSnackBar('ຜິດພາດໃນການໂຫຼດຂໍ້ມູນ: $e', _errorColor);
       print("Error fetching customers: $e");
     } finally {
       setState(() => _isLoading = false);
@@ -133,6 +125,7 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
       return;
     }
 
+    setState(() => _isLoading = true); // Show loading while adding
     await SQLHelper.creatCustomer(
       item['cust_code'],
       item['cust_name'],
@@ -140,42 +133,18 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
       item['logistic_area'],
       item['latlng'],
     );
-
     _refreshAddedCustomers(); // Refresh the list of added customers
-
-    // Optionally remove from available list if it's a one-time selection
-    // setState(() {
-    //   _availableCustomers.removeWhere((e) => e['cust_code'] == item['cust_code']);
-    // });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'ເພີ່ມລູກຄ້າສຳເລັດ',
-            style: TextStyle(fontFamily: 'NotoSansLao', color: Colors.white),
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
+    _showSnackBar('ເພີ່ມລູກຄ້າສຳເລັດ', _successColor);
+    setState(() => _isLoading = false); // Hide loading
   }
 
   void _removeCustomerFromLocalDB(String id) async {
+    setState(() => _isLoading = true); // Show loading while removing
     await SQLHelper.deleteacustomerbyid(id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'ລົບລູກຄ້າສຳເລັດ',
-            style: TextStyle(fontFamily: 'NotoSansLao', color: Colors.white),
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
     _refreshAddedCustomers(); // Refresh the list of added customers
-    _fetchAvailableCustomers(); // Refresh available list in case it was removed from there
+    _fetchAvailableCustomers(); // Re-fetch to ensure consistency if needed
+    _showSnackBar('ລົບລູກຄ້າສຳເລັດ', _errorColor);
+    setState(() => _isLoading = false); // Hide loading
   }
 
   void _showAlreadyAddedDialog() {
@@ -184,17 +153,20 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
       builder: (_) => CupertinoAlertDialog(
         title: const Text(
           "ຄຳເຕືອນ",
-          style: TextStyle(fontFamily: 'NotoSansLao'),
+          style: TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: const Text(
-          "ຮ້ານນີ້ເພີ່ມແລ້ວໃນແຜນ.",
+          "ຮ້ານນີ້ເພີ່ມແລ້ວໃນແຜນການເດີນທາງ.",
           style: TextStyle(fontFamily: 'NotoSansLao'),
         ),
         actions: [
           CupertinoDialogAction(
             isDefaultAction: true,
             child: const Text(
-              "OK",
+              "ຕົກລົງ",
               style: TextStyle(fontFamily: 'NotoSansLao', color: Colors.blue),
             ),
             onPressed: () => Navigator.pop(context),
@@ -204,24 +176,48 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
     );
   }
 
+  void _showSnackBar(String message, Color color) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: const TextStyle(
+              fontFamily: 'NotoSansLao',
+              color: Colors.white,
+            ),
+          ),
+          backgroundColor: color,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _lightBlue, // Consistent background color
+      backgroundColor: _backgroundColor,
       appBar: AppBar(
         title: const Text(
-          "ເລືອກລູກຄ້າສຳລັບແຜນ", // More descriptive title
-          style: TextStyle(fontFamily: 'NotoSansLao', color: Colors.white),
+          "ເລືອກລູກຄ້າ",
+          style: TextStyle(
+            fontFamily: 'NotoSansLao',
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        backgroundColor: _primaryBlue,
+        backgroundColor: _primaryColor,
         foregroundColor: Colors.white,
         centerTitle: true,
-        elevation: 0, // Flat design
+        elevation: 0,
         actions: [
           IconButton(
-            // Refresh button in app bar
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _fetchAvailableCustomers,
+            onPressed: () {
+              _fetchAvailableCustomers();
+              _refreshAddedCustomers();
+            },
             tooltip: 'ໂຫຼດຂໍ້ມູນລູກຄ້າຄືນໃໝ່',
           ),
         ],
@@ -229,73 +225,55 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
       body: Stack(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16), // Increased overall padding
+            padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _buildFilterAndSearchBar(), // Combined filter and search
-                const SizedBox(height: 16), // Spacing after filters/search
-                Expanded(
-                  child: Column(
-                    children: [
-                      // --- Section: Added Customers ---
-                      if (_addedCustomers.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          "ລູກຄ້າທີ່ເພີ່ມແລ້ວ",
-                          Icons.check_circle_outline,
-                          _primaryBlue,
-                          Colors.green.shade700,
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height:
-                              _addedCustomers.length * 70.0 >
-                                  210 // Adjust height dynamically or cap it
-                              ? 210 // Max height for added customers list
-                              : _addedCustomers.length * 70.0,
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: _addedCustomers.length,
-                            itemBuilder: (context, index) {
-                              final cust = _addedCustomers[index];
-                              return _buildCustomerListItem(
-                                customer: cust,
-                                isAdded: true,
-                                onRemove: () => _removeCustomerFromLocalDB(
-                                  cust['id'].toString(),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Divider(
-                          height: 1,
-                          thickness: 0.8,
-                          color: Colors.grey,
-                        ), // Visual separator
-                        const SizedBox(height: 20),
-                      ],
-
-                      // --- Section: Available Customers ---
-                      _buildSectionHeader(
-                        "ເລືອກລູກຄ້າ",
-                        Icons.person_add_alt_1_outlined,
-                        _primaryBlue,
-                        _accentBlue,
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(child: _buildAvailableCustomerList()),
-                    ],
+                _buildFilterAndSearchBar(),
+                const SizedBox(height: 20),
+                if (_addedCustomers.isNotEmpty) ...[
+                  _buildSectionHeader(
+                    "ລູກຄ້າທີ່ເພີ່ມແລ້ວ",
+                    Icons.playlist_add_check,
+                    _successColor,
                   ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: _addedCustomers.length * 75.0 > 225
+                        ? 225 // Max height for added customers list
+                        : _addedCustomers.length * 75.0,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _addedCustomers.length,
+                      itemBuilder: (context, index) {
+                        final cust = _addedCustomers[index];
+                        return _buildCustomerListItem(
+                          customer: cust,
+                          isAdded: true,
+                          onRemove: () =>
+                              _removeCustomerFromLocalDB(cust['id'].toString()),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(height: 1, thickness: 0.8, color: Colors.grey),
+                  const SizedBox(height: 20),
+                ],
+                _buildSectionHeader(
+                  "ລູກຄ້າທີ່ມີ",
+                  Icons.person_add_alt_1,
+                  _primaryColor,
                 ),
+                const SizedBox(height: 12),
+                Expanded(child: _buildAvailableCustomerList()),
               ],
             ),
           ),
           if (_isLoading)
             Container(
-              color: Colors.black.withOpacity(0.4), // Darker overlay
+              color: Colors.black.withOpacity(0.4),
               child: Center(
-                child: CircularProgressIndicator(color: _primaryBlue),
+                child: CircularProgressIndicator(color: _primaryColor),
               ),
             ),
         ],
@@ -303,26 +281,20 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
     );
   }
 
-  // --- New Helper: Section Header ---
-  Widget _buildSectionHeader(
-    String title,
-    IconData icon,
-    Color iconColor,
-    Color textColor,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4), // Reduced padding
+  Widget _buildSectionHeader(String title, IconData icon, Color iconColor) {
+    return Container(
+      alignment: Alignment.centerLeft,
       child: Row(
         children: [
-          Icon(icon, color: iconColor, size: 24),
-          const SizedBox(width: 8),
+          Icon(icon, color: iconColor, size: 28),
+          const SizedBox(width: 10),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleLarge!.copyWith(
-              // Larger font for headers
-              fontWeight: FontWeight.bold,
+            style: TextStyle(
               fontFamily: 'NotoSansLao',
-              color: textColor,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: _textColor,
             ),
           ),
         ],
@@ -330,7 +302,6 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
     );
   }
 
-  // --- New Helper: Filter and Search Bar ---
   Widget _buildFilterAndSearchBar() {
     return Column(
       children: [
@@ -340,7 +311,7 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
               child: _buildFilterField(
                 controller: _provinceDisplayController,
                 label: "ແຂວງ",
-                icon: Icons.map_outlined,
+                icon: Icons.location_on_outlined,
                 onTap: () async {
                   final result = await Navigator.push(
                     context,
@@ -358,28 +329,16 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
                 },
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: _buildFilterField(
                 controller: _cityDisplayController,
                 label: "ເມືອງ",
-                icon: Icons.location_city_outlined,
+                icon: Icons.business_outlined,
                 onTap: () async {
-                  if (_selectedProvinceCode == null) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "ກະລຸນາເລືອກແຂວງກ່ອນ",
-                            style: TextStyle(
-                              fontFamily: 'NotoSansLao',
-                              color: Colors.white,
-                            ),
-                          ),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    }
+                  if (_selectedProvinceCode == null ||
+                      _selectedProvinceCode!.isEmpty) {
+                    _showSnackBar("ກະລຸນາເລືອກແຂວງກ່ອນ", Colors.orange);
                     return;
                   }
                   final result = await Navigator.push(
@@ -400,55 +359,50 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 15),
         TextField(
           controller: _searchQueryController,
-          onChanged: (value) => _fetchAvailableCustomers(),
-          style: TextStyle(fontFamily: 'NotoSansLao', color: _accentBlue),
+          style: TextStyle(fontFamily: 'NotoSansLao', color: _textColor),
           decoration: InputDecoration(
             hintText: 'ຄົ້ນຫາລູກຄ້າ...',
             hintStyle: TextStyle(
               fontFamily: 'NotoSansLao',
-              color: _textMutedColor,
+              color: _lightTextColor,
             ),
-            prefixIcon: Icon(Icons.search, color: _primaryBlue),
-            suffixIcon: IconButton(
-              icon: Icon(Icons.clear, color: Colors.grey),
-              onPressed: () {
-                _searchQueryController.clear();
-                _fetchAvailableCustomers();
-              },
-            ),
+            prefixIcon: Icon(Icons.search, color: _primaryColor),
+            suffixIcon: _searchQueryController.text.isNotEmpty
+                ? IconButton(
+                    icon: Icon(Icons.clear, color: Colors.grey),
+                    onPressed: () {
+                      _searchQueryController.clear();
+                      _fetchAvailableCustomers();
+                    },
+                  )
+                : null,
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none, // No border by default
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: _primaryBlue.withOpacity(0.3),
-              ), // Subtle border
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(color: _primaryColor.withOpacity(0.2)),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: _primaryBlue,
-                width: 2.0,
-              ), // Stronger focus border
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(color: _accentColor, width: 2.0),
             ),
             contentPadding: const EdgeInsets.symmetric(
-              vertical: 10,
-              horizontal: 15,
-            ), // Compact padding
+              vertical: 12,
+              horizontal: 18,
+            ),
           ),
         ),
       ],
     );
   }
 
-  // --- New Helper: Filter Field (Read-only input with tap action) ---
   Widget _buildFilterField({
     required TextEditingController controller,
     required String label,
@@ -464,41 +418,39 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'NotoSansLao',
-            color: _accentBlue,
-            fontSize: 13,
+            color: _accentColor,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
           decoration: InputDecoration(
-            prefixIcon: Icon(icon, color: _primaryBlue, size: 20),
+            prefixIcon: Icon(icon, color: _primaryColor, size: 22),
             hintText: label,
             hintStyle: TextStyle(
               fontFamily: 'NotoSansLao',
-              color: _textMutedColor,
-              fontSize: 13,
+              color: _lightTextColor,
+              fontSize: 14,
             ),
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(15),
               borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: _primaryBlue.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(color: _primaryColor.withOpacity(0.2)),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: _primaryBlue, width: 2.0),
+              borderRadius: BorderRadius.circular(15),
+              borderSide: BorderSide(color: _accentColor, width: 2.0),
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 10,
-            ), // Compact padding
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
           ),
         ),
       ),
     );
   }
 
-  // --- New Helper: Customer List Item ---
   Widget _buildCustomerListItem({
     required Map<String, dynamic> customer,
     required bool isAdded,
@@ -506,51 +458,55 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
     VoidCallback? onRemove,
   }) {
     return Card(
-      margin: const EdgeInsets.symmetric(
-        vertical: 6,
-        horizontal: 2,
-      ), // Slightly reduced horizontal margin
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         leading: CircleAvatar(
           backgroundColor: isAdded
-              ? Colors.green.shade100
-              : _primaryBlue.withOpacity(0.1),
-          radius: 22,
+              ? _successColor.withOpacity(0.1)
+              : _primaryColor.withOpacity(0.1),
+          radius: 25,
           child: Icon(
-            isAdded ? Icons.check : Icons.person_outline,
-            color: isAdded ? Colors.green.shade700 : _primaryBlue,
-            size: 24,
+            isAdded ? Icons.check_circle_outline : Icons.person_outline,
+            color: isAdded ? _successColor : _primaryColor,
+            size: 28,
           ),
         ),
         title: Text(
-          customer['cust_name'],
+          customer['cust_name'] ?? 'ບໍ່ມີຊື່',
           style: TextStyle(
             fontFamily: 'NotoSansLao',
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
-            fontSize: 15,
+            color: _textColor,
+            fontSize: 16,
           ),
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: Text(
           customer['adress1'] ??
-              customer['cust_code'], // Show address if available, else code
+              (customer['cust_code'] != null
+                  ? 'ລະຫັດ: ${customer['cust_code']}'
+                  : 'ບໍ່ມີຂໍ້ມູນ'),
           style: TextStyle(
             fontFamily: 'NotoSansLao',
-            color: _textMutedColor,
+            color: _lightTextColor,
             fontSize: 13,
           ),
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: isAdded
             ? IconButton(
                 icon: Icon(
                   Icons.remove_circle_outline,
-                  color: Colors.redAccent,
-                  size: 28,
+                  color: _errorColor,
+                  size: 30,
                 ),
                 onPressed: onRemove,
                 tooltip: 'ລົບອອກຈາກແຜນ',
@@ -558,8 +514,8 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
             : IconButton(
                 icon: Icon(
                   Icons.add_circle_outline,
-                  color: _primaryBlue,
-                  size: 28,
+                  color: _primaryColor,
+                  size: 30,
                 ),
                 onPressed: onAdd,
                 tooltip: 'ເພີ່ມເຂົ້າແຜນ',
@@ -568,37 +524,37 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
     );
   }
 
-  // --- New Helper: Available Customer List ---
   Widget _buildAvailableCustomerList() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator(color: _primaryBlue));
+      return Center(child: CircularProgressIndicator(color: _primaryColor));
     } else if (_availableCustomers.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.location_off_outlined,
-              size: 70,
+              Icons.sentiment_dissatisfied_outlined,
+              size: 80,
               color: Colors.grey[300],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 25),
             Text(
-              "ບໍ່ພົບລູກຄ້າ",
+              "ບໍ່ພົບລູກຄ້າທີ່ກົງກັນ",
               style: TextStyle(
                 fontFamily: 'NotoSansLao',
-                fontSize: 17,
-                color: _textMutedColor,
-                fontWeight: FontWeight.w500,
+                fontSize: 18,
+                color: _textColor,
+                fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 8),
             Text(
-              "ລອງປັບການຄົ້ນຫາ ຫຼື ເລືອກແຂວງ/ເມືອງໃໝ່.",
+              "ລອງປັບປ່ຽນການຄົ້ນຫາ ຫຼື ເລືອກແຂວງ/ເມືອງໃໝ່.",
               style: TextStyle(
                 fontFamily: 'NotoSansLao',
-                fontSize: 15,
-                color: Colors.grey[500],
+                fontSize: 14,
+                color: _lightTextColor,
               ),
               textAlign: TextAlign.center,
             ),
@@ -606,32 +562,59 @@ class _CustomerForRouteplanState extends State<CustomerForRouteplan> {
         ),
       );
     } else {
+      // Filter out customers already added to the local database
+      final List filteredAvailableCustomers = _availableCustomers.where((item) {
+        return !_addedCustomers.any(
+          (addedCust) => addedCust['cust_code'] == item['cust_code'],
+        );
+      }).toList();
+
+      if (filteredAvailableCustomers.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.check_circle_outline,
+                size: 80,
+                color: _successColor.withOpacity(0.3),
+              ),
+              const SizedBox(height: 25),
+              Text(
+                "ລູກຄ້າທັງໝົດໄດ້ຖືກເພີ່ມແລ້ວ!",
+                style: TextStyle(
+                  fontFamily: 'NotoSansLao',
+                  fontSize: 18,
+                  color: _textColor,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "ບໍ່ມີລູກຄ້າໃໝ່ໃຫ້ເພີ່ມໃນປັດຈຸບັນ.",
+                style: TextStyle(
+                  fontFamily: 'NotoSansLao',
+                  fontSize: 14,
+                  color: _lightTextColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        );
+      }
       return ListView.builder(
-        itemCount: _availableCustomers.length,
+        itemCount: filteredAvailableCustomers.length,
         itemBuilder: (context, index) {
-          final item = _availableCustomers[index];
-          // Check if the current available customer is already in the added list
-          final bool alreadyAdded = _addedCustomers.any(
-            (addedCust) => addedCust['cust_code'] == item['cust_code'],
-          );
-
-          // Only show 'Add' button if not already added
-          if (alreadyAdded) {
-            return const SizedBox.shrink(); // Hide the item if already added
-          }
-
+          final item = filteredAvailableCustomers[index];
           return _buildCustomerListItem(
             customer: item,
-            isAdded: false, // This item is from available list, not yet added
+            isAdded: false,
             onAdd: () async {
-              // Handle adding customer to local DB
               if (widget.from_route == '0') {
                 await _addCustomerToLocalDB(item);
-                // After adding, you might want to re-filter _availableCustomers
-                // or visually update this specific item. For simplicity,
-                // we're relying on _refreshAddedCustomers and then filtering in the builder.
               } else {
-                // If from a different route, just pop back with data
                 Navigator.pop(context, {
                   'cust_code': item['cust_code'],
                   'cust_name': item['cust_name'],

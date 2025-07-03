@@ -1,12 +1,10 @@
 import 'dart:convert';
-import 'package:flutter/cupertino.dart'; // For CupertinoAlertDialog
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http; // Use http alias for clarity
+import 'package:http/http.dart' as http;
 import 'package:odgcashvan/utility/my_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // For FontAwesomeIcons
 
-import '../../utility/app_colors.dart'; // Import your AppColors
+import '../../utility/app_colors.dart';
 import 'editqty.dart';
 import 'productforeditrequest.dart';
 
@@ -15,7 +13,7 @@ class ReqestProductDetail extends StatefulWidget {
   final String wh_code;
   final String sh_code;
   final String doc_date;
-  final String edit_status; // '0' for editable, '1' for read-only
+  final String edit_status;
 
   const ReqestProductDetail({
     super.key,
@@ -30,313 +28,243 @@ class ReqestProductDetail extends StatefulWidget {
   State<ReqestProductDetail> createState() => _ReqestProductDetailState();
 }
 
-class _ReqestProductDetailState extends State<ReqestProductDetail> {
-  bool _isEditingMode = false;
-  List<dynamic> _requestItems = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+class _ReqestProductDetailState extends State<ReqestProductDetail>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animCtrl;
+  late Animation<double> _fadeAnim;
+
+  bool _editing = false;
+  List<dynamic> _items = [];
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    // Set initial editing mode based on edit_status from widget
-    _isEditingMode = widget.edit_status == '0';
-    _fetchRequestDetails();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _fadeAnim = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeInOut));
+    _editing = widget.edit_status == '0';
+    _fetch();
   }
 
-  Future<void> _fetchRequestDetails() async {
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetch() async {
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _loading = true;
+      _error = null;
     });
 
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse(
           "${MyConstant().domain}/listrequestVansaledetail/${widget.doc_no}",
         ),
       );
 
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
         setState(() {
-          _requestItems = result['list'] ?? [];
-          _isLoading = false;
+          _items = data['list'] ?? [];
+          _loading = false;
         });
+        _animCtrl.forward();
       } else {
         setState(() {
-          _isLoading = false;
-          _errorMessage = 'ໂຫຼດລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${response.statusCode}';
+          _loading = false;
+          _error = 'ໂຫຼດລົ້ມເຫຼວ';
         });
-        _showSnackBar(_errorMessage!, AppColors.errorColor);
-        print("Server error: ${response.statusCode} - ${response.body}");
+        _toast(_error!, Colors.red);
       }
     } catch (e) {
       setState(() {
-        _isLoading = false;
-        _errorMessage = 'ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດຂໍ້ມູນ: $e';
+        _loading = false;
+        _error = 'ເຊື່ອມຕໍ່ລົ້ມເຫຼວ';
       });
-      _showSnackBar('ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດຂໍ້ມູນ: $e', AppColors.errorColor);
-      print("Network error: $e");
+      _toast(_error!, Colors.red);
     }
   }
 
-  Future<void> _deleteItem(String rowId) async {
-    // Show a small, non-blocking loading indicator
-    final overlay = OverlayEntry(
-      builder: (context) => Center(
-        child: CircularProgressIndicator(color: AppColors.primaryBlue),
-      ),
-    );
-    Overlay.of(context).insert(overlay);
-
+  Future<void> _delete(String rowId) async {
+    _showLoading();
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse("${MyConstant().domain}/deleteiteminrequeststk/$rowId"),
       );
-      overlay.remove(); // Dismiss loading indicator
+      Navigator.pop(context);
 
-      if (response.statusCode == 200) {
-        _showSnackBar('ລົບລາຍການສຳເລັດແລ້ວ', AppColors.successColor);
-        _fetchRequestDetails(); // Refresh the list
+      if (res.statusCode == 200) {
+        _toast('ລົບສຳເລັດ', Colors.green);
+        _fetch();
       } else {
-        _showSnackBar(
-          'ລົບລາຍການບໍ່ສຳເລັດ: ${response.statusCode}',
-          AppColors.errorColor,
-        );
-        print(
-          "Server error on delete: ${response.statusCode} - ${response.body}",
-        );
+        _toast('ລົບລົ້ມເຫຼວ', Colors.red);
       }
     } catch (e) {
-      overlay.remove(); // Dismiss loading indicator
-      _showSnackBar('ເກີດຂໍ້ຜິດພາດໃນການລົບລາຍການ: $e', AppColors.errorColor);
-      print("Network error on delete: $e");
+      Navigator.pop(context);
+      _toast('ລົບລົ້ມເຫຼວ', Colors.red);
     }
   }
 
-  void _showSnackBar(String message, Color color) {
+  void _showLoading() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: AppColors.primaryBlue),
+              const SizedBox(height: 12),
+              const Text(
+                'ກຳລັງປະມວນຜົນ...',
+                style: TextStyle(fontFamily: 'NotoSansLao', fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toast(String msg, Color color) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            message,
-            style: const TextStyle(
-              fontFamily: 'NotoSansLao',
-              color: AppColors.white,
-            ),
+            msg,
+            style: const TextStyle(fontFamily: 'NotoSansLao', fontSize: 12),
           ),
           backgroundColor: color,
-          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          margin: const EdgeInsets.all(12),
         ),
       );
     }
-  }
-
-  void _confirmDeleteItem(String rowId, String itemName) {
-    showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(
-          "ຢືນຢັນການລົບ",
-          style: TextStyle(
-            fontFamily: 'NotoSansLao',
-            fontWeight: FontWeight.bold,
-            color: AppColors.errorColor,
-          ),
-        ),
-        content: Text(
-          "ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລົບສິນຄ້າ '$itemName' ອອກຈາກໃບຂໍໂອນນີ້?",
-          style: TextStyle(
-            fontFamily: 'NotoSansLao',
-            fontSize: 13, // Reduced font size
-            color: AppColors.textColorPrimary,
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              _deleteItem(rowId);
-            },
-            child: Text(
-              'ລົບເລີຍ',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.errorColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context), // Close dialog
-            child: Text(
-              'ຍົກເລີກ',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.accentBlue,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.backgroundColor,
-      appBar: AppBar(
-        title: Text(
-          "ໃບຂໍໂອນ: ${widget.doc_no}",
-          style: const TextStyle(
-            color: AppColors.white,
-            fontFamily: 'NotoSansLao',
-            fontWeight: FontWeight.bold,
-            fontSize: 18, // Reduced font size
-          ),
-        ),
-        actions: [
-          if (widget.edit_status ==
-              '0') // Only show edit button if allowed to edit
-            IconButton(
-              onPressed: () {
-                setState(() {
-                  _isEditingMode = !_isEditingMode; // Toggle editing mode
-                });
-                _showSnackBar(
-                  _isEditingMode ? 'ໂໝດແກ້ໄຂ: ເປີດ' : 'ໂໝດແກ້ໄຂ: ປິດ',
-                  _isEditingMode
-                      ? AppColors.accentBlue
-                      : AppColors.textColorSecondary,
-                );
-              },
-              icon: Icon(
-                _isEditingMode
-                    ? Icons.check_circle_outline
-                    : Icons.edit_outlined,
-                color: AppColors.white,
-                size: 22, // Reduced icon size
-              ),
-              tooltip: _isEditingMode ? 'ສິ້ນສຸດການແກ້ໄຂ' : 'ແກ້ໄຂລາຍການ',
-            ),
+      backgroundColor: Colors.grey.shade50,
+      body: CustomScrollView(
+        slivers: [
+          _buildAppBar(),
+          SliverToBoxAdapter(child: _buildContent()),
         ],
-        backgroundColor: AppColors.accentBlue,
-        centerTitle: true,
-        elevation: 0,
       ),
-      floatingActionButton: _isEditingMode
-          ? FloatingActionButton.extended(
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ProductForEditRequest(
-                      wh_code: widget.wh_code,
-                      sh_code: widget.sh_code,
-                      doc_no: widget.doc_no,
-                      doc_date: widget.doc_date,
-                    ),
-                  ),
-                );
-                _fetchRequestDetails(); // Refresh data after adding product
-              },
-              label: const Text(
-                'ເພີ່ມສິນຄ້າ',
-                style: TextStyle(
-                  fontFamily: 'NotoSansLao',
-                  color: AppColors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14, // Reduced font size
-                ),
-              ),
-              icon: const Icon(
-                Icons.add_shopping_cart,
-                color: AppColors.white,
-                size: 20,
-              ), // Reduced icon size
-              backgroundColor: AppColors.actionButtonColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ), // Reduced border radius
-            )
-          : null,
-      body: _buildBody(),
+      floatingActionButton: _editing ? _buildFab() : null,
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: AppColors.primaryBlue),
-            const SizedBox(height: 12), // Reduced spacing
-            Text(
-              'ກຳລັງໂຫຼດລາຍການສິນຄ້າ...',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.textColorSecondary,
-                fontSize: 15, // Reduced font size
-              ),
+  Widget _buildAppBar() {
+    return SliverAppBar(
+      expandedHeight: 80,
+      floating: false,
+      pinned: true,
+      backgroundColor: AppColors.primaryBlue,
+      foregroundColor: Colors.white,
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(
+          widget.doc_no,
+          style: const TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+        titlePadding: const EdgeInsets.only(left: 16, bottom: 12),
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primaryBlue,
+                AppColors.primaryBlue.withOpacity(0.8),
+              ],
             ),
-          ],
+          ),
+        ),
+      ),
+      actions: [
+        if (widget.edit_status == '0')
+          IconButton(
+            onPressed: () {
+              setState(() => _editing = !_editing);
+              _toast(
+                _editing ? 'ເປີດໂໝດແກ້ໄຂ' : 'ປິດໂໝດແກ້ໄຂ',
+                _editing ? Colors.blue : Colors.grey,
+              );
+            },
+            icon: Icon(_editing ? Icons.check_circle : Icons.edit, size: 20),
+          ),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    if (_loading) {
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: AppColors.primaryBlue),
+              const SizedBox(height: 12),
+              const Text(
+                'ກຳລັງໂຫຼດ...',
+                style: TextStyle(fontFamily: 'NotoSansLao', fontSize: 14),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0), // Reduced padding
+    if (_error != null) {
+      return SizedBox(
+        height: 200,
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.error_outline,
-                size: 50, // Reduced icon size
-                color: AppColors.errorColor,
-              ),
-              const SizedBox(height: 12), // Reduced spacing
+              Icon(Icons.error_outline, size: 40, color: Colors.red.shade300),
+              const SizedBox(height: 12),
               Text(
-                'ເກີດຂໍ້ຜິດພາດ: $_errorMessage',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'NotoSansLao',
-                  color: AppColors.errorColor,
-                  fontSize: 15, // Reduced font size
-                  fontWeight: FontWeight.w500,
-                ),
+                _error!,
+                style: const TextStyle(fontFamily: 'NotoSansLao', fontSize: 14),
               ),
-              const SizedBox(height: 16), // Reduced spacing
+              const SizedBox(height: 12),
               ElevatedButton.icon(
-                onPressed: _fetchRequestDetails,
-                icon: const Icon(
-                  Icons.refresh,
-                  color: AppColors.white,
-                  size: 20,
-                ), // Reduced icon size
-                label: const Text(
-                  'ລອງໃໝ່',
-                  style: TextStyle(
-                    fontFamily: 'NotoSansLao',
-                    color: AppColors.white,
-                    fontSize: 15, // Reduced font size
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                onPressed: _fetch,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('ລອງໃໝ່', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accentBlue,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  backgroundColor: AppColors.primaryBlue,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                    horizontal: 12,
+                    vertical: 6,
                   ),
-                  elevation: 3,
                 ),
               ),
             ],
@@ -345,221 +273,370 @@ class _ReqestProductDetailState extends State<ReqestProductDetail> {
       );
     }
 
-    if (_requestItems.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.shopping_bag_outlined,
-              size: 70, // Reduced icon size
-              color: AppColors.grey300,
-            ),
-            const SizedBox(height: 16), // Reduced spacing
-            Text(
-              'ບໍ່ມີສິນຄ້າໃນໃບຂໍໂອນນີ້.',
-              style: TextStyle(
-                fontFamily: 'NotoSansLao',
-                color: AppColors.textColorSecondary,
-                fontSize: 16, // Reduced font size
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6), // Reduced spacing
-            if (_isEditingMode)
-              Text(
-                'ກົດປຸ່ມ "+" ເພື່ອເພີ່ມສິນຄ້າ.',
-                textAlign: TextAlign.center,
+    if (_items.isEmpty) {
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.inbox_outlined, size: 40, color: Colors.grey.shade400),
+              const SizedBox(height: 12),
+              const Text(
+                'ບໍ່ມີສິນຄ້າ',
                 style: TextStyle(
                   fontFamily: 'NotoSansLao',
-                  color: AppColors.textColorSecondary.withOpacity(0.7),
-                  fontSize: 13, // Reduced font size
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-          ],
+              const SizedBox(height: 6),
+              if (_editing)
+                Text(
+                  'ກົດປຸ່ມ + ເພື່ອເພີ່ມສິນຄ້າ',
+                  style: TextStyle(
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(8.0), // Reduced overall padding
-      itemCount: _requestItems.length,
-      itemBuilder: (context, index) {
-        final item = _requestItems[index];
-        final String rowId = item['roworder'].toString();
-        final String itemName = item['item_name'] ?? 'ບໍ່ມີຊື່';
+    return FadeTransition(
+      opacity: _fadeAnim,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Summary card
+            _buildSummaryCard(),
+            const SizedBox(height: 12),
 
-        return Card(
-          elevation: 2, // Reduced elevation
-          margin: const EdgeInsets.symmetric(
-            vertical: 6.0,
-          ), // Reduced vertical margin
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12), // Reduced border radius
+            // Items list
+            Text(
+              'ລາຍການສິນຄ້າ (${_items.length})',
+              style: const TextStyle(
+                fontFamily: 'NotoSansLao',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            ..._items.asMap().entries.map((entry) {
+              final index = entry.key;
+              final item = entry.value;
+              return AnimatedContainer(
+                duration: Duration(milliseconds: 300 + (index * 100)),
+                curve: Curves.easeOutBack,
+                child: _buildItemCard(item),
+              );
+            }).toList(),
+
+            const SizedBox(height: 60), // Space for FAB
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      color: AppColors.primaryBlue.withOpacity(0.1),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'ສະຫຼຸບ',
+                  style: TextStyle(
+                    fontFamily: 'NotoSansLao',
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _editing ? Colors.orange : Colors.blue,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _editing ? 'ສາມາດແກ້ໄຂ' : 'ອ່ານເທົ່ານັ້ນ',
+                    style: const TextStyle(
+                      fontFamily: 'NotoSansLao',
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: _buildSummaryItem('ວັນທີ', widget.doc_date)),
+                Expanded(
+                  child: _buildSummaryItem('ຈຳນວນລາຍການ', '${_items.length}'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(child: _buildSummaryItem('ຈາກສາງ', widget.wh_code)),
+                Expanded(child: _buildSummaryItem('ທີ່ເກັບ', widget.sh_code)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontSize: 10,
+            color: Colors.grey.shade600,
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0), // Reduced padding
-            child: Column(
+        ),
+        const SizedBox(height: 1),
+        Text(
+          value,
+          style: const TextStyle(
+            fontFamily: 'NotoSansLao',
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildItemCard(Map<String, dynamic> item) {
+    final rowId = item['roworder'].toString();
+    final itemName = item['item_name'] ?? 'ບໍ່ມີຊື່';
+    final itemCode = item['item_code'] ?? 'N/A';
+    final qty = item['qty'] ?? '0';
+    final unit = item['unit_code'] ?? 'N/A';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            itemName,
-                            style: const TextStyle(
-                              fontFamily: 'NotoSansLao',
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16, // Reduced font size
-                              color: AppColors.textColorPrimary,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 3), // Reduced spacing
-                          Text(
-                            'ລະຫັດສິນຄ້າ: ${item['item_code'] ?? 'N/A'}',
-                            style: TextStyle(
-                              fontFamily: 'NotoSansLao',
-                              fontSize: 12, // Reduced font size
-                              color: AppColors.textColorSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8), // Reduced spacing
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          'ຈຳນວນ',
-                          style: TextStyle(
-                            fontFamily: 'NotoSansLao',
-                            fontSize: 11, // Reduced font size
-                            color: AppColors.textColorSecondary,
-                          ),
-                        ),
-                        Text(
-                          '${item['qty']} ${item['unit_code'] ?? 'N/A'}',
-                          style: const TextStyle(
-                            fontFamily: 'NotoSansLao',
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16, // Reduced font size
-                            color: AppColors.accentBlue,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                if (_isEditingMode) ...[
-                  const Divider(
-                    height: 20,
-                    thickness: 0.8,
-                  ), // Reduced height and thickness
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                // Product info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EditQty(
-                                wh_code: widget.wh_code,
-                                sh_code: widget.sh_code,
-                                ic_code: item['item_code'].toString(),
-                                qty: item['qty'].toString(),
-                                unit_code: item['unit_code'].toString(),
-                                doc_no: widget.doc_no,
-                              ),
-                            ),
-                          );
-                          _fetchRequestDetails(); // Refresh data after editing
-                        },
-                        icon: const Icon(
-                          Icons.edit,
-                          size: 18,
-                          color: AppColors.primaryBlue,
-                        ), // Reduced icon size
-                        label: const Text(
-                          "ແກ້ໃຂ",
-                          style: TextStyle(
-                            fontFamily: 'NotoSansLao',
-                            color: AppColors.primaryBlue,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13, // Reduced font size
-                          ),
+                      Text(
+                        itemName,
+                        style: const TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryBlue.withOpacity(
-                            0.08,
-                          ), // Reduced opacity
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              6,
-                            ), // Reduced border radius
-                            side: BorderSide(
-                              color: AppColors.primaryBlue.withOpacity(0.3),
-                            ), // Reduced opacity
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ), // Reduced padding
-                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 8), // Reduced spacing
-                      ElevatedButton.icon(
-                        onPressed: () => _confirmDeleteItem(rowId, itemName),
-                        icon: const Icon(
-                          Icons.delete_forever,
-                          size: 18,
-                          color: AppColors.errorColor,
-                        ), // Reduced icon size
-                        label: const Text(
-                          "ລົບ",
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          itemCode,
                           style: TextStyle(
                             fontFamily: 'NotoSansLao',
-                            color: AppColors.errorColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13, // Reduced font size
+                            fontSize: 10,
+                            color: Colors.grey.shade600,
                           ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.errorColor.withOpacity(
-                            0.08,
-                          ), // Reduced opacity
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              6,
-                            ), // Reduced border radius
-                            side: BorderSide(
-                              color: AppColors.errorColor.withOpacity(0.3),
-                            ), // Reduced opacity
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ), // Reduced padding
                         ),
                       ),
                     ],
                   ),
-                ],
+                ),
+                const SizedBox(width: 12),
+
+                // Quantity
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        qty,
+                        style: TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryBlue,
+                        ),
+                      ),
+                      Text(
+                        unit,
+                        style: TextStyle(
+                          fontFamily: 'NotoSansLao',
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
+            ),
+
+            // Action buttons
+            if (_editing) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => EditQty(
+                            wh_code: widget.wh_code,
+                            sh_code: widget.sh_code,
+                            ic_code: itemCode,
+                            qty: qty.toString(),
+                            unit_code: unit,
+                            doc_no: widget.doc_no,
+                          ),
+                        ),
+                      );
+                      _fetch();
+                    },
+                    icon: const Icon(Icons.edit, size: 14),
+                    label: const Text(
+                      'ແກ້ໄຂ',
+                      style: TextStyle(fontFamily: 'NotoSansLao', fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: () => _showDeleteDialog(rowId, itemName),
+                    icon: const Icon(Icons.delete, size: 14, color: Colors.red),
+                    label: const Text(
+                      'ລົບ',
+                      style: TextStyle(
+                        fontFamily: 'NotoSansLao',
+                        fontSize: 12,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFab() {
+    return FloatingActionButton(
+      onPressed: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProductForEditRequest(
+              wh_code: widget.wh_code,
+              sh_code: widget.sh_code,
+              doc_no: widget.doc_no,
+              doc_date: widget.doc_date,
             ),
           ),
         );
+        _fetch();
       },
+      backgroundColor: AppColors.primaryBlue,
+      foregroundColor: Colors.white,
+      child: const Icon(Icons.add, size: 24),
+    );
+  }
+
+  void _showDeleteDialog(String rowId, String itemName) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        title: const Text(
+          'ຢືນຢັນການລົບ',
+          style: TextStyle(fontFamily: 'NotoSansLao', fontSize: 14),
+        ),
+        content: Text(
+          'ທ່ານຕ້ອງການລົບ "$itemName" ບໍ?',
+          style: const TextStyle(fontFamily: 'NotoSansLao', fontSize: 12),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'ຍົກເລີກ',
+              style: TextStyle(fontFamily: 'NotoSansLao', fontSize: 12),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _delete(rowId);
+            },
+            child: const Text(
+              'ລົບ',
+              style: TextStyle(
+                fontFamily: 'NotoSansLao',
+                fontSize: 12,
+                color: Colors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

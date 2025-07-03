@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:odgcashvan/stock/countstock/listbillstockcount.dart';
 
 import 'countstock/homecountstock.dart';
 import 'productlist.dart';
@@ -167,8 +168,8 @@ class _HomestockState extends State<Homestock> {
                     icon: FontAwesomeIcons
                         .clipboardCheck, // Icon for checking/auditing
                     title: 'ກວດນັບສິນຄ້າ',
-                    targetWidget: const HomeCountStock(),
-                    isSelected: _currentBodyWidget is HomeCountStock,
+                    targetWidget: const ListBillStockCount(),
+                    isSelected: _currentBodyWidget is ListBillStockCount,
                   ),
                   const Divider(
                     height: 25, // More vertical space for divider
